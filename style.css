@@ -11,7 +11,6 @@
   --surface: #26262c;
   --text: #f2f2f5;
   --text-dim: #a0a0ab;
-  --accent: #e8b931;
   --danger: #ff6b6b;
 
   /* Two weights of line, and the distinction between them is the whole point
@@ -27,6 +26,14 @@
      nearly absent on the other. */
   --grid-line: #0d0d10;
   --cell-line: rgba(0, 0, 0, 0.3);
+
+  /* One dark glyph colour works on every region fill, which is exactly what
+     the measured 5.18:1 contrast floor on the palette buys. The mark is
+     translucent rather than a different hue: it is a note-to-self, so it
+     should read as provisional next to a committed crown while still being
+     the same ink. */
+  --glyph-crown: var(--grid-line);
+  --glyph-mark: rgba(0, 0, 0, 0.5);
 
   /* Nine region colours, because the shipping range tops out at 9x9 and a
      board of N regions needs N distinct fills. Only five are used by the
@@ -104,8 +111,8 @@ body {
   font-size: clamp(1.5rem, 6vmin, 2.25rem);
   font-weight: 700;
   letter-spacing: -0.02em;
-  /* Neutral rather than gold: the board is now vivid enough that a saturated
-     heading competes with it. --accent is kept for the crown and win state. */
+  /* Neutral rather than gold: the board is vivid enough that a saturated
+     heading competes with it. */
   color: var(--text);
 }
 
@@ -129,8 +136,13 @@ body {
    5x5 scaffold and a 9x9 shipping board with no CSS change. */
 .board {
   display: grid;
-  grid-template-columns: repeat(var(--board-size, 5), 1fr);
-  grid-template-rows: repeat(var(--board-size, 5), 1fr);
+  /* minmax(0, 1fr), not 1fr. A bare 1fr means minmax(auto, 1fr), so a track's
+     minimum is its content size -- a row holding a glyph then refuses to
+     shrink and steals height from the empty rows, leaving the grid visibly
+     uneven. The explicit 0 minimum keeps every track exactly equal whatever
+     the cells contain. */
+  grid-template-columns: repeat(var(--board-size, 5), minmax(0, 1fr));
+  grid-template-rows: repeat(var(--board-size, 5), minmax(0, 1fr));
   /* Sizing note, because the obvious version of this is subtly wrong:
      `width: <something>` + `aspect-ratio: 1` + `max-height` does NOT keep the
      board square. With a definite width the height is derived from the ratio
@@ -170,6 +182,20 @@ body {
   background: var(--grid-line);
   border: var(--frame) solid var(--grid-line);
   border-radius: 6px;
+
+  /* touch-action: none, not manipulation. Drag-to-mark needs the pointermove
+     stream, and any touch-action that still permits panning lets the browser
+     claim the gesture and scroll the page instead. The board is sized to fit
+     the viewport, so nothing here needed to scroll anyway. This also disables
+     double-tap-to-zoom over the board. */
+  touch-action: none;
+  /* Stops a drag selecting content, and stops Android's long-press text
+     selection popup appearing mid-gesture. */
+  user-select: none;
+  -webkit-user-select: none;
+  /* Android paints a grey flash box on tap, which looks poor over the
+     saturated fills. */
+  -webkit-tap-highlight-color: transparent;
 }
 
 /* Cell separators are drawn as inset box-shadows rather than real borders so
@@ -196,6 +222,12 @@ body {
    draw nothing on that side. */
 .cell {
   background: var(--surface);
+  /* Centres the glyph. Because the cell separators are box-shadows rather
+     than borders they consume no layout space, so the content box is the full
+     cell on every cell -- a glyph sitting on a heavy region boundary lands in
+     exactly the same place as one in the middle of a region. */
+  display: grid;
+  place-items: center;
 
   /* Right and bottom default to a hairline; left and top to nothing, since
      an unshared internal line is always drawn by the cell above or left. */
@@ -228,6 +260,40 @@ body {
    one being zeroed. */
 .cell.last-col { --edge-r: 0px; }
 .cell.last-row { --edge-b: 0px; }
+
+/* Kept out of the document flow without display:none, which some engines treat
+   as a reason not to resolve <use> references into it. */
+.sprite {
+  position: absolute;
+  width: 0;
+  height: 0;
+  overflow: hidden;
+}
+
+.glyph {
+  width: 62%;
+  height: 62%;
+  /* Input must always resolve to the cell, never to the glyph drawn on top of
+     it, or taps land on a different target once a cell is occupied. */
+  pointer-events: none;
+}
+
+.cell[data-state="empty"] .glyph {
+  display: none;
+}
+
+/* The mark is drawn smaller as well as lighter -- it is an annotation, and at
+   full size an X reads as competing with the crown rather than noting a cell
+   the crown cannot occupy. */
+.cell[data-state="mark"] .glyph {
+  width: 42%;
+  height: 42%;
+  color: var(--glyph-mark);
+}
+
+.cell[data-state="crown"] .glyph {
+  color: var(--glyph-crown);
+}
 
 .cell[data-region="0"] { background: var(--region-0); }
 .cell[data-region="1"] { background: var(--region-1); }

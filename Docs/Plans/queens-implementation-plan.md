@@ -42,7 +42,7 @@ Two player-facing settings, both toggles, both persisted:
 
 Short answer: it'll work, but it's not the best fit, and I'd lead with something else.
 
-p5.js is built around a `draw()` loop that redraws the whole canvas every frame — great for animation, physics, particle systems, generative art. Queens is the opposite of that: a static board that changes state only on discrete clicks (empty → dot/X → crown). You can absolutely build it in p5.js by calling `noLoop()` and manually calling `redraw()` on input, but at that point you're fighting the framework's default mental model rather than using it.
+p5.js is built around a `draw()` loop that redraws the whole canvas every frame — great for animation, physics, particle systems, generative art. Queens is the opposite of that: a static board that changes state only on discrete clicks (empty → X → crown). You can absolutely build it in p5.js by calling `noLoop()` and manually calling `redraw()` on input, but at that point you're fighting the framework's default mental model rather than using it.
 
 Here's how I'd actually rank the options for this specific game:
 
@@ -96,14 +96,65 @@ The hardcoded puzzle must be a *genuine* puzzle with a unique solution, not a de
 - Check the region colors are visually distinguishable from each other at a glance.
 
 **Phase 2 — Tap/click/pen interaction & cell states**
-Add per-cell state: empty → dot (marks "not here") → crown → empty, cycling on input (this matches LinkedIn's actual interaction model — a first tap marks an X/dot as a note-to-self, a second tap promotes it to a crown). Build this on Pointer Events (`pointerdown`/`pointerup`) rather than separate mouse, touch, and pen handlers, so mouse, finger, and S Pen all drive the exact same code path. Set `touch-action: manipulation` on cells so mobile browsers don't interpret quick repeated taps as a double-tap-to-zoom gesture. Make each tap target at least ~44×44px (Apple/Google's minimum recommended touch target). Note that the binding case is the *largest* board on the *narrowest* screen, not the smallest board — a 9×9 on a 412px-wide phone leaves only ~45px per cell, so verify the tap target at 9×9 specifically rather than at the 5×5 scaffolding size, where it will pass trivially and tell you nothing. Wire up rendering so state changes are reflected immediately. No rule-checking yet, so any configuration is currently "allowed."
+Add per-cell state: empty → X → crown → empty, cycling on tap (this matches LinkedIn's actual interaction model — a first tap marks an X as a note-to-self, a second tap promotes it to a crown). Note the consequence: placing a crown always costs two taps. That's the intended model, not a bug. Dragging across cells paints X marks in bulk rather than cycling them — see "Drag to mark" below. Build this on Pointer Events (`pointerdown`/`pointerup`) rather than separate mouse, touch, and pen handlers, so mouse, finger, and S Pen all drive the exact same code path. Wire up rendering so state changes are reflected immediately. **No rule-checking yet, so any configuration is currently "allowed"** — five crowns in one row will sit there unchallenged until Phase 3. Worth stating plainly so the end state of this phase doesn't read as broken.
+
+*Design decisions settled up front:*
+
+- **The mark is an X, not a dot.** It matches LinkedIn, conventionally reads as "excluded", and stays legible at 45px on a 9×9. A dot is too easily misread as a small crown at a glance.
+- **The crown is inline SVG, not the Unicode ♛.** Android emoji-ifies several Unicode chess glyphs, so ♛ would render as a colour emoji on the phone and a flat black glyph on desktop. Given Android is the primary platform, that mismatch is disqualifying — and an emoji crown would also ignore the measured glyph-contrast floor the palette was tuned around. Inline SVG renders identically everywhere and scales cleanly.
+- **Both glyphs need `pointer-events: none`** so input always resolves to the cell underneath rather than the glyph sitting on it.
+- **The state array outlives this phase.** Keep it a plain 2D array of small ints parallel to `regions`, separate from the puzzle data (state resets; the puzzle doesn't). Phase 3 validates it, Phase 6's undo/redo clones it, and Phase 7 serialises it to `localStorage` — so cheap-to-copy and cheap-to-stringify matters more than an expressive representation.
+- **Update the changed cell, don't re-render the board.** A full re-render per tap works but discards hover/focus state and leaves Phase 6's animations nothing stable to animate.
+
+*Drag to mark:* marking cells one tap at a time is tedious, since ruling out a row or a diagonal is the most common thing a player does. So a **drag paints X marks in bulk** — press on a cell, drag across others, release. Rules that make it safe and predictable:
+
+- **Direction is decided once, from the cell the gesture started on.** Starting on an empty cell marks; starting on a marked cell erases. One stroke therefore never both adds and removes marks, which is what makes it feel like a brush rather than a toggle.
+- **Crowns are never painted over, in either direction.** A drag is a bulk annotation gesture, and letting it wipe deliberately placed crowns would make it dangerous on a board with work invested in it. A drag that *starts* on a crown paints nothing at all — that gesture is almost certainly a mis-drag.
+- **Nothing is applied on `pointerdown`.** Whether a gesture is a tap or a drag is only known when it ends, so acting early would make every drag also cycle its first cell.
+
+*Pointer Events subtleties worth getting right the first time:*
+
+- A gesture that never leaves its starting cell is a **tap** and cycles that cell; one that leaves it is a **drag** and paints. Note this supersedes a plain "press and release on the same cell" rule — under drag semantics, leaving the cell and coming back must *not* also cycle it on release.
+- **Hit-test by coordinate (`document.elementFromPoint`), not `event.target`.** Touch implicitly captures the pointer to whatever element received `pointerdown`, so during a touch drag every `pointermove` reports the *starting* cell and nothing else. Reading `event.target` gives a drag that works with a mouse and silently does nothing on the phone.
+- Use `setPointerCapture` so a gesture survives the pointer leaving the board mid-drag.
+- Track the active `pointerId` and ignore others, so a second finger cannot interleave with a gesture in progress.
+- Handle `pointercancel` — the OS steals gestures for palm rejection and system swipes, and a cancelled gesture must not leave a half-applied state or fire a tap on the following `pointerup`.
+- Do **not** also listen for `click`. Pointer events already cover it; listening to both fires every interaction twice.
+- Use delegated listeners on the board container, reading `data-row`/`data-col` off the cell — those attributes have been on every cell since Phase 1.1 precisely for this.
+
+*Three mobile defences, all of which are easy to forget:*
+
+- **`touch-action: none` on the board — not `manipulation`.** Drag-to-mark needs the `pointermove` stream, and any value that still permits panning lets the browser claim the gesture and scroll the page instead. The board is sized to fit the viewport so nothing there needed to scroll, and this suppresses double-tap-to-zoom too.
+- `user-select: none`, so a drag doesn't select content and a long press doesn't raise the Android text-selection popup.
+- `-webkit-tap-highlight-color: transparent`, since Android paints a grey flash box on tap that looks bad over the saturated fills.
+
+*One CSS trap specific to this phase:* the board's grid tracks must be `minmax(0, 1fr)`, not `1fr`. A bare `1fr` means `minmax(auto, 1fr)`, so a track's minimum is its content size — the moment a cell gains a glyph, its row refuses to shrink and steals height from the empty rows, leaving a visibly uneven grid. The bug only appears once glyphs exist, which is why it belongs in this phase's notes rather than Phase 1's.
+
+*Tap targets:* at least ~44×44px (Apple/Google's minimum recommended touch target). The binding case is the *largest* board on the *narrowest* screen, not the smallest board — a 9×9 on a 412px-wide phone leaves only ~45px per cell, so this must be verified at 9×9 rather than at the 5×5 scaffolding size, where it passes trivially and tells you nothing. Since the puzzle picker isn't until Phase 4, Phase 2.2 adds a **dev-only 9×9** (a genuine unique-solution board, selectable by URL parameter) purely so this check can actually be run. Deferring it to Phase 4 would mean discovering a fundamental ergonomics problem on the primary device only after two more phases had been built on top of it.
+
+*Deliberately out of scope:* S Pen hover previews stay a Phase 8 enhancement, and keyboard navigation stays in Phase 9. The delegated-listener design keeps both cheap to add later.
+
+*Sub-phases (one commit each):*
+
+- **Phase 2.1 — State model, cycling, glyphs, and the full gesture model.** State array, the three-way cycle, X and crown SVGs, and the tap-versus-drag pointer state machine. The three mobile defences land here too rather than in 2.2 as originally planned: drag-to-mark simply does not function without `touch-action: none` and `user-select: none`, so withholding them would have shipped a feature that only worked on desktop. `pointercancel` handling comes along for the same reason — it is part of the gesture machine, not a hardening pass on top of it.
+- **Phase 2.2 — The dev 9×9 and the tap-target gate.** Adds the dev-only 9×9 and its URL-parameter switch, then runs the real-device verification: 44px tap targets at 9×9, rapid-tap correctness, palm rejection, and drag accuracy at the smallest cell size. Smaller than originally scoped, because 2.1 absorbed the gesture work — but this is where every real-device gate is closed, and drag-to-mark at 45px cells is a genuine open question that only hardware can answer.
 
 *Test before moving on:*
-- Desktop with a mouse: click through empty → dot → crown → empty on every cell, including edges and corners.
+
+- Desktop with a mouse: click through empty → X → crown → empty on every cell, including edges and corners.
+- Confirm the crown and X render identically on desktop and on the S25 Ultra — no emoji substitution, no size or weight mismatch.
 - S25 Ultra with a finger: tap through the same cycle; confirm no double-tap-zoom triggers and no accidental page scroll near the board edges.
 - S25 Ultra with the S Pen specifically: repeat the full cycle using only the stylus, not your finger — this is the first phase where pen input matters, so confirm it explicitly rather than assuming Pointer Events "just work."
 - Rest your palm on the screen in a natural writing grip while using the S Pen and confirm no stray taps register.
+- Drag across several empty cells and confirm every cell touched — *including the one the drag started on* — ends up marked, and that the cell you released on is marked rather than cycled to a crown.
+- Drag starting from an already-marked cell and confirm it erases along the whole path rather than toggling cell by cell.
+- Place a crown, then drag straight through it, and confirm the crown survives and the cells either side are marked. Then start a drag *on* the crown and confirm nothing is painted at all.
+- Press, drag off the cell, drag back, and release — confirm the cell stays marked and is *not* also cycled to a crown, since that gesture was a drag and not a tap.
+- Drag with a finger on the S25 Ultra and confirm the page does not scroll under the gesture. Then repeat with the S Pen.
+- Long-press a cell on the phone and confirm no text-selection popup or grey tap-highlight box appears.
+- Confirm every row and column is exactly the same size once glyphs are on the board — an uneven grid means the tracks regressed from `minmax(0, 1fr)` back to `1fr`.
 - Rapidly tap the same cell several times with each input method and confirm the state cycles cleanly with no double-registered or skipped states.
+- Load the dev 9×9 on the S25 Ultra in portrait and confirm every cell is comfortably tappable with both finger and S Pen — this is the check the 5×5 cannot give you.
 
 **Phase 3 — Rule validation & win detection**
 Implement the four constraints as pure functions operating on the board state: one crown per row, one per column, one per region, no two crowns adjacent (including diagonally). On every crown placement, check for rule violations and highlight the offending cells in red (this is the real-time feedback that makes the game feel responsive). Add win detection: puzzle is solved when N crowns are placed and all constraints hold.
@@ -117,9 +168,11 @@ Implement the four constraints as pure functions operating on the board state: o
 **Phase 4 — Puzzle data format & multiple puzzles**
 Formalize the puzzle representation (e.g., a JSON file: grid size + region-ID-per-cell array), move the hardcoded puzzle from Phase 1 into that format, and add 4–5 more hand-authored puzzles at increasing difficulty. Add a simple puzzle picker/next-puzzle button. At this point you have a genuinely playable game with curated content — a good milestone to share for feedback.
 
+Two carry-overs from earlier phases land here. The Phase 1.1 puzzle object was already shaped to this schema, so moving it should be a file move rather than a rewrite — if it isn't, that's a sign the schema drifted and is worth reconciling now. And the **dev-only 9×9 added in Phase 2.2** for the tap-target check gets promoted into the real puzzle set (or replaced by a better-authored one) and its URL-parameter escape hatch removed in favour of the actual picker.
+
 *Test before moving on:*
 - Load each hand-authored puzzle individually and confirm correct rendering (grid size, region colors) and that you can actually solve it.
-- Switch between puzzles via the picker and confirm the board fully resets — no leftover crowns/dots from the previous puzzle.
+- Switch between puzzles via the picker and confirm the board fully resets — no leftover crowns or X marks from the previous puzzle.
 - Deliberately break a puzzle JSON (typo a region ID) and confirm it fails loudly/visibly rather than silently rendering a broken board — catching data bugs here saves time once Phase 5's generator is producing puzzles automatically.
 
 **Phase 5 — Puzzle generator**
@@ -161,7 +214,7 @@ Concretely, this phase adds:
   - `legal_actions() -> list[(row, col)]`
   - `step(action) -> (observation, reward, done, info)`
   - `clone() -> QueensEnv` — the one method plain Gym envs don't usually need but MCTS absolutely does, since search explores many hypothetical rollouts without mutating the real game state.
-  - `encode() -> np.ndarray` — the board as a fixed-shape tensor for the network (e.g. one channel per region ID, one for placed crowns, one for dot/marked cells).
+  - `encode() -> np.ndarray` — the board as a fixed-shape tensor for the network (e.g. one channel per region ID, one for placed crowns, one for X-marked cells).
   - `render()` — an ASCII dump for debugging a training run from the terminal.
 - A design decision to make early: puzzle size varies by difficulty (6×6 up to 9×9 per the Phase 5 tiers), but a neural net wants a fixed input shape. The low-effort standard answer is to pad every board up to the largest size — 9×9, per the "Board size range" section — and add a mask channel marking real vs. padding cells, so one network can train across all difficulties instead of needing one per size.
 
@@ -181,7 +234,7 @@ Timer, mistake counter, undo/redo, a "clear board" button, a hint system (highli
 
 *Test before moving on:*
 - Timer starts, pauses/resumes, and resets correctly across a full attempt, including backgrounding and returning to the tab.
-- Mistake counter increments only on genuine rule violations — not on dot-marking, undo, or clearing.
+- Mistake counter increments only on genuine rule violations — not on X-marking, undo, or clearing.
 - Undo/redo behaves correctly through a full solve, including at the very start (nothing to undo) and right after a win.
 - Request a hint on an unstarted puzzle and confirm it returns a genuinely deducible cell, not a random or unsolvable one.
 - Difficulty selector: confirm each of the four options loads a puzzle from the correct tier, not just a random one.
@@ -191,7 +244,7 @@ Timer, mistake counter, undo/redo, a "clear board" button, a hint system (highli
 Add the settings surface and the two toggles described in "Settings: theme and region patterns" above. Three pieces of work, in rough order of effort:
 
 - **The light theme.** The app is dark-only up to this point, so this is the real work of the phase: author the `[data-theme="light"]` token block and the `prefers-color-scheme` query behind the "System" option. Per the section above, change only the page chrome — background, text, panel surfaces, borders — and leave the region fills, grid lines, and glyph colour fixed across both themes so the measured contrast floor carries over untouched.
-- **The pattern overlay.** Nine distinct textures keyed off the `data-region` attribute already present on every cell since Phase 1.1, so this attaches in CSS with no markup change. Patterns must survive on top of a crown or dot glyph without making either ambiguous — that's the detail most likely to need iteration.
+- **The pattern overlay.** Nine distinct textures keyed off the `data-region` attribute already present on every cell since Phase 1.1, so this attaches in CSS with no markup change. Patterns must survive on top of a crown or X glyph without making either ambiguous — that's the detail most likely to need iteration.
 - **The panel itself.** A small settings control, reachable in one tap from the board and not buried behind a menu-within-a-menu (per the discoverability mitigation above). Applying a setting flips an attribute on `<html>`; nothing needs a re-render.
 
 Settings persistence rides along with Phase 7's `localStorage` work — if you build 6.5 first, hold the values in memory and wire storage in Phase 7; if you build Phase 7 first, persist settings in the same pass.
@@ -202,8 +255,8 @@ Settings persistence rides along with Phase 7's `localStorage` work — if you b
 - With the setting on "System", change the phone's own light/dark mode and confirm the game follows it live, without a reload.
 - Set an explicit Light or Dark override, then change the system theme, and confirm the override *wins* rather than being silently overridden.
 - Turn region patterns on with a 9×9 loaded — the size where colour alone is weakest — and confirm all nine regions are distinguishable with the display forced to greyscale.
-- With patterns on, place a crown and a dot on several differently-patterned regions and confirm both glyphs stay unambiguous against the texture.
-- Check the crown/dot glyph contrast in *both* themes on all nine region colours; if grid-line or glyph colours ended up differing between themes after all, re-measure the nine ratios rather than trusting the Phase 1 numbers.
+- With patterns on, place a crown and an X on several differently-patterned regions and confirm both glyphs stay unambiguous against the texture.
+- Check the crown/X glyph contrast in *both* themes on all nine region colours; if grid-line or glyph colours ended up differing between themes after all, re-measure the nine ratios rather than trusting the Phase 1 numbers.
 - Re-run the Phase-2 input check (mouse, finger, S Pen) against the new settings controls, per the same reasoning as Phase 6's buttons.
 
 **Phase 7 — Daily puzzle & persistence**
@@ -213,7 +266,7 @@ Use the current date to deterministically pick/seed a puzzle (same approach as W
 - Set a non-default theme and turn patterns on, reload, and confirm both survive — then confirm they still survive after a full browser restart, not just an in-tab reload.
 - Reload the page several times and confirm today's puzzle stays the same each time.
 - Change your system/dev-tools clock forward a day and confirm a different puzzle loads.
-- Close the tab mid-solve, reopen, and confirm placed crowns/dots are restored correctly from `localStorage`.
+- Close the tab mid-solve, reopen, and confirm placed crowns and X marks are restored correctly from `localStorage`.
 - Clear `localStorage` manually and confirm the app degrades gracefully (starts fresh) rather than erroring.
 - Specifically test persistence on the S25 Ultra's browser after backgrounding the tab for a while — some Android browsers reclaim memory aggressively, and it's worth confirming your saved progress survives that rather than assuming desktop behavior carries over.
 

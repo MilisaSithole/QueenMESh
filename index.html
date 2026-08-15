@@ -9,6 +9,23 @@
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
+  <!-- Glyph sprite. Inline SVG rather than the Unicode crown: Android
+       emoji-ifies chess characters, which would render a colour emoji on the
+       phone and a flat glyph on desktop. Defined once and referenced by
+       <use>, so each cell keeps one stable glyph node for Phase 6 to
+       animate rather than having its markup rebuilt on every tap. -->
+  <svg class="sprite" aria-hidden="true" focusable="false">
+    <symbol id="glyph-crown" viewBox="0 0 24 24">
+      <path fill="currentColor"
+            d="M2.5 6.75 L6.9 12.15 L12 3.15 L17.1 12.15 L21.5 6.75 L19.8 16.75 L4.2 16.75 Z" />
+      <rect fill="currentColor" x="4.2" y="18.25" width="15.6" height="2.6" rx="1.1" />
+    </symbol>
+    <symbol id="glyph-mark" viewBox="0 0 24 24">
+      <path fill="none" stroke="currentColor" stroke-width="3.4" stroke-linecap="round"
+            d="M7 7 L17 17 M17 7 L7 17" />
+    </symbol>
+  </svg>
+
   <main class="app">
     <h1 class="title">QueenMESh</h1>
     <div class="board-area">
