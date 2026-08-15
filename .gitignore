@@ -1,0 +1,13 @@
+# OS / editor cruft
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/
+
+# Python (Phase 5.5 RL environment)
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/

@@ -1,0 +1,177 @@
+# QueenMESh — Incremental Implementation Plan
+
+## The rules, restated
+
+An N×N grid (LinkedIn uses 7–10 depending on difficulty) is divided into N colored regions. The player places one crown/queen per row, per column, and per color region, with the added constraint that no two crowns may touch — including diagonally. A valid puzzle has exactly one solution reachable by pure logic (no guessing required), which is what makes generation the hardest part of this project, not the UI.
+
+## Tech stack: is p5.js the right call?
+
+Short answer: it'll work, but it's not the best fit, and I'd lead with something else.
+
+p5.js is built around a `draw()` loop that redraws the whole canvas every frame — great for animation, physics, particle systems, generative art. Queens is the opposite of that: a static board that changes state only on discrete clicks (empty → dot/X → crown). You can absolutely build it in p5.js by calling `noLoop()` and manually calling `redraw()` on input, but at that point you're fighting the framework's default mental model rather than using it.
+
+Here's how I'd actually rank the options for this specific game:
+
+**1. Plain HTML/CSS Grid + vanilla JS (my pick for the MVP).** Each cell is a `<div>` in a CSS grid. Region color is a CSS class or inline style. Clicks are native DOM events — no manual hit-testing math to map pointer coordinates to grid cells, which p5.js and raw Canvas both require you to write by hand. You get hover states, focus outlines, and keyboard navigation almost for free, which matters if you want the game to be accessible (arrow keys + enter to place a crown is a nice touch LinkedIn's own version supports). Zero dependencies, zero build step — you can open `index.html` directly and it works, and it deploys to GitHub Pages with no configuration at all.
+
+**2. SVG + vanilla JS.** Similar benefits to the DOM approach, plus crisp scaling at any size and easy CSS transitions for the "place crown" animation. Slightly more setup than plain divs for no real gain here, so I'd only reach for it if you want fancy vector icons for the crown/X marks.
+
+**3. Svelte (or another compile-to-vanilla framework).** Worth it once the app grows past "one puzzle" — e.g. once you add a puzzle library, daily-puzzle rotation, stats/streaks, and settings. Svelte compiles away to small vanilla JS/CSS, still deploys as a static bundle to GitHub Pages, and gives you real component structure and state management without the runtime weight of React. I'd only introduce this in a later phase if the vanilla version starts feeling unwieldy.
+
+**4. p5.js.** Reasonable if you specifically want canvas-based polish — a satisfying particle burst when the puzzle is solved, a hand-drawn aesthetic, drag-to-paint interactions — or if you're already comfortable in it and want to move fast. Just budget extra time for input handling (translating pointer events to grid cells yourself) and accessibility (canvas content is invisible to screen readers and keyboard nav by default).
+
+**5. Phaser / PixiJS.** Overkill — these are built for sprite-based action games with physics and asset pipelines. Nothing here needs that.
+
+**Hosting:** GitHub Pages is a good choice regardless of which of the above you pick, since all of them can ship as static HTML/CSS/JS with no server. It's free, has a custom-domain option, and deploys straight from a repo (either the `docs/` folder or a `gh-pages` branch, or via a GitHub Actions workflow if you add a build step for Svelte). Netlify, Vercel, and Cloudflare Pages are equally free and arguably a bit smoother for continuous deployment (auto-deploy previews on every push, no branch juggling) if you ever want that. itch.io is worth knowing about too — it's the go-to free host specifically for browser games and gives you a built-in audience of people looking for exactly this kind of puzzle game, plus optional pay-what-you-want monetization, though it's less natural if you want the repo itself to double as the live site.
+
+**Recommendation:** build the MVP in vanilla HTML/CSS/JS on GitHub Pages. If it grows in scope, migrate the state/rendering logic into Svelte without touching the hosting setup. Reach for p5.js only for a later "juice" pass (win animation, confetti) layered on top, not as the foundation.
+
+**Mobile note:** since you'll mainly be playing this on your phone, this recommendation gets stronger, not weaker. CSS Grid/Flexbox handles fluid resizing and pointer input natively; a canvas-based approach (p5.js or raw Canvas) means hand-rolling hit-testing and manual viewport scaling on top of everything else. Given that, responsiveness shouldn't be a late "Phase 8" bolt-on (as the original draft of this plan had it) — build every screen mobile-first from Phase 1 onward and treat desktop as the secondary layout, since that matches how you'll actually be using it.
+
+**Stylus note (Galaxy S25 Ultra / S Pen):** this is where the earlier decision to build on the **Pointer Events API** (`pointerdown`/`pointerup`, not separate `click` and `touchstart` handlers) pays off directly. Pointer Events already unify mouse, touch, *and* pen into one event model — the S Pen shows up as `event.pointerType === 'pen'`, and everything built for touch (tap-to-cycle state, `touch-action: manipulation`, 44px targets) works with the S Pen with no extra code. The one thing worth knowing: S Pen supports true hover (it can report position before making contact with the glass), which is something finger touch can never do — that's a nice opportunity to give the S Pen a desktop-like ":hover" preview (e.g. highlighting a cell before you commit a tap) as a stylus-specific enhancement later, not a requirement for launch. Palm rejection while holding the pen naturally is handled by Samsung's OS/browser stack, not something you need to build, but it's still worth explicitly testing rather than assuming.
+
+## Incremental build plan
+
+Each phase below should leave you with something that runs in the browser and can be committed/pushed. Don't start a phase until the previous one is playable, and don't consider a phase "done" until its testing checklist passes.
+
+**Phase 0 — Scaffolding & deploy pipeline (~30 min)**
+Create the repo, a bare `index.html` + `style.css` + `main.js`, and push it live on GitHub Pages immediately — even with just "Hello Queens" on the page. Getting the deploy loop working first means every later phase is one commit away from being shareable/testable on a real URL instead of just locally.
+
+*Test before moving on:*
+- Open the GitHub Pages URL on a desktop browser and confirm the placeholder page renders.
+- Open the same URL on the S25 Ultra and confirm it loads — no 404, no mixed-content warnings.
+- Edit the placeholder text, push, hard-refresh (bypass cache) on both devices, and confirm the change actually appears — this proves the deploy pipeline itself works before you start depending on it every phase.
+
+**Phase 1 — Static board rendering (mobile-first)**
+Hardcode a single small puzzle (say 5×5) as a 2D array of region IDs. Render it as a CSS grid of cells, each colored by its region, sized with relative units (`vmin`/`%`, not fixed pixels) so the whole board scales to fit a phone screen in portrait orientation without scrolling. Set the `viewport` meta tag (`width=device-width, initial-scale=1`) from this phase, not later — retrofitting it after other CSS is written is more painful than starting with it. No interactivity yet — just get the visual grid right, including a border style that makes region boundaries clearly readable (this is the #1 usability detail in the real game).
+
+*Test before moving on:*
+- Resize the desktop browser window through several widths and confirm the grid stays square and legible.
+- View on the S25 Ultra in both portrait and landscape — the board should fit without horizontal scrolling or overflow.
+- Zoom the browser's text/accessibility size up and confirm the layout doesn't break.
+- Check the region colors are visually distinguishable from each other at a glance.
+
+**Phase 2 — Tap/click/pen interaction & cell states**
+Add per-cell state: empty → dot (marks "not here") → crown → empty, cycling on input (this matches LinkedIn's actual interaction model — a first tap marks an X/dot as a note-to-self, a second tap promotes it to a crown). Build this on Pointer Events (`pointerdown`/`pointerup`) rather than separate mouse, touch, and pen handlers, so mouse, finger, and S Pen all drive the exact same code path. Set `touch-action: manipulation` on cells so mobile browsers don't interpret quick repeated taps as a double-tap-to-zoom gesture. Make each tap target at least ~44×44px (Apple/Google's minimum recommended touch target) even on the smallest supported board size. Wire up rendering so state changes are reflected immediately. No rule-checking yet, so any configuration is currently "allowed."
+
+*Test before moving on:*
+- Desktop with a mouse: click through empty → dot → crown → empty on every cell, including edges and corners.
+- S25 Ultra with a finger: tap through the same cycle; confirm no double-tap-zoom triggers and no accidental page scroll near the board edges.
+- S25 Ultra with the S Pen specifically: repeat the full cycle using only the stylus, not your finger — this is the first phase where pen input matters, so confirm it explicitly rather than assuming Pointer Events "just work."
+- Rest your palm on the screen in a natural writing grip while using the S Pen and confirm no stray taps register.
+- Rapidly tap the same cell several times with each input method and confirm the state cycles cleanly with no double-registered or skipped states.
+
+**Phase 3 — Rule validation & win detection**
+Implement the four constraints as pure functions operating on the board state: one crown per row, one per column, one per region, no two crowns adjacent (including diagonally). On every crown placement, check for rule violations and highlight the offending cells in red (this is the real-time feedback that makes the game feel responsive). Add win detection: puzzle is solved when N crowns are placed and all constraints hold.
+
+*Test before moving on:*
+- Manually build a few known-invalid boards (two crowns sharing a row, a column, a region, or diagonally touching) and confirm each is flagged correctly.
+- Solve the Phase-1 puzzle correctly and confirm the win state fires exactly once N crowns are placed validly — not earlier, not requiring an extra action.
+- Try to trigger a win with too few crowns or an invalid layout and confirm it correctly does *not* fire.
+- Repeat the invalid/valid checks using the S Pen on the S25 Ultra, not just a mouse — this is the phase where a missed or doubled tap would actually produce a wrong rule-violation flag, so it's worth re-verifying input reliability here specifically.
+
+**Phase 4 — Puzzle data format & multiple puzzles**
+Formalize the puzzle representation (e.g., a JSON file: grid size + region-ID-per-cell array), move the hardcoded puzzle from Phase 1 into that format, and add 4–5 more hand-authored puzzles at increasing difficulty. Add a simple puzzle picker/next-puzzle button. At this point you have a genuinely playable game with curated content — a good milestone to share for feedback.
+
+*Test before moving on:*
+- Load each hand-authored puzzle individually and confirm correct rendering (grid size, region colors) and that you can actually solve it.
+- Switch between puzzles via the picker and confirm the board fully resets — no leftover crowns/dots from the previous puzzle.
+- Deliberately break a puzzle JSON (typo a region ID) and confirm it fails loudly/visibly rather than silently rendering a broken board — catching data bugs here saves time once Phase 5's generator is producing puzzles automatically.
+
+**Phase 5 — Puzzle generator**
+This is the hard, interesting part, and worth its own phase rather than bolting it onto Phase 4. Approach: (a) generate a random valid solution — N crown positions satisfying row/column/region/adjacency constraints — by backtracking; (b) grow color regions outward from each crown via randomized flood-fill until every cell is assigned a region; (c) verify the puzzle has a *unique* solution by running your Phase-3 constraint solver and confirming exactly one valid crown arrangement exists, discarding and retrying if not; (d) score difficulty using the technique-tier method below, so puzzles can be sorted into buckets rather than hand-labeled by feel.
+
+### Deciding difficulty (Easy / Medium / Hard / Impossible)
+
+The robust way to do this — the same approach Sudoku generators use — is to rate a puzzle by *which logical techniques are required to solve it*, not by grid size or by guesswork. Grid size alone is a weak signal: a small grid can be brutal, and a large one can be trivial if it's very constrained. The real driver of perceived difficulty is how deep the deduction has to go before a cell is forced.
+
+Build a second solver alongside the brute-force one used for uniqueness-checking above — a "human-style" solver that only applies a defined ladder of deduction rules, in order, and records the highest rule it ever needed to fire:
+
+- **Tier 1 (Easy).** Purely mechanical eliminations: a region, row, or column has only one legal cell left once adjacency and other placed crowns are accounted for. If the whole puzzle falls out using nothing but repeated Tier-1 passes, it's Easy.
+- **Tier 2 (Medium).** Requires noticing that a region is entirely confined to one or two rows/columns, which then rules out those rows/columns for every *other* region (the Queens equivalent of Sudoku's "pointing pairs"). Puzzles that need at least one Tier-2 deduction, but nothing beyond it, are Medium.
+- **Tier 3 (Hard).** Requires chaining several Tier-1/Tier-2 deductions together, or noticing multi-region interactions where two or three regions mutually constrain each other's rows/columns before anything is forced. Needing Tier-3 reasoning anywhere in the solve path makes it Hard.
+- **Tier 4 (Impossible).** The human-style solver gets stuck — no remaining logical rule fires — even though the brute-force solver confirms a unique solution still exists. Reaching the solution requires trial branching: tentatively place a crown, propagate, and see if it leads to a contradiction elsewhere. Puzzles that only yield to this kind of search-and-backtrack get labeled Impossible.
+
+Practically: generate a batch of candidate puzzles, run each through the tiered solver, bucket by the highest tier reached, and keep a handful in reserve for each of the four difficulty levels. A secondary, optional signal worth logging once you have real players: actual solve time and mistake count per puzzle, which lets you sanity-check the tier labels against how people actually experience them and re-bucket anything that's mislabeled.
+
+Grid size is still worth varying as a coarse secondary lever (e.g., Easy at 6×6 up to Impossible at 9×9 or 10×10), but it should ride along with the technique-tier rating rather than substitute for it.
+
+*Test before moving on:*
+- Generate a batch (20–50) of puzzles and confirm the uniqueness check actually discards puzzles with zero or multiple solutions rather than silently accepting them.
+- Manually play through several generated puzzles yourself, on the real site — an automated uniqueness check doesn't guarantee a puzzle "feels" fair or that region shapes aren't degenerate (e.g., a single isolated cell).
+- Visually spot-check region shapes for a dozen or so generated puzzles, since flood-fill generation can occasionally produce disconnected or oddly-shaped regions.
+- Run the tiered solver against the Phase-4 hand-authored puzzles (where you already know the intended difficulty) and confirm the ratings line up with your own sense of how hard they were.
+- Confirm at least one generated puzzle lands in each of the four buckets — if "Impossible" never comes up after many attempts, the tiering thresholds likely need adjusting.
+
+**Phase 5.5 — RL-ready environment (AlphaZero playground)**
+This is an optional track that runs in parallel to Phases 6–9, not before them — build it whenever, as soon as Phase 3 (rules) and Phase 5 (generator + puzzle format) exist. The web game and the RL environment never need to talk to each other at runtime; they only need to agree on the same puzzle JSON schema and the same rules, since all training happens locally on your machine rather than against the live site. That's also why no network API is needed here — "API" in this section means a clean importable interface, not an HTTP endpoint.
+
+One framing note worth having going in: AlphaZero itself is built for adversarial two-player self-play. Queens is single-player, so the honest description is "AlphaZero-*style*" — closer to how the same policy-network + value-network + MCTS recipe has been adapted to single-agent combinatorial puzzles (Rubik's Cube-solving systems like DeepCube are the closest precedent). A policy network proposes the next cell to place a crown in, a value network estimates how solvable the resulting position still is, and MCTS uses both to search a few moves ahead before committing. Knowing this up front avoids designing the environment around the wrong shape of algorithm later.
+
+Concretely, this phase adds:
+
+- A standalone Python package (e.g. `env/queenmesh_env/`) with zero dependency on the browser/JS code — the only thing it shares with the web game is the Phase-4 puzzle JSON schema, so a given puzzle is identical on both sides.
+- `rules.py` — a direct Python port of the Phase 3 constraint checks (row / column / region / adjacency). The logic is simple enough to hand-translate; keep it pure and side-effect-free so it's cheap to call thousands of times inside an MCTS inner loop and trivial to unit test.
+- `env.py` — a Gymnasium-style environment class, so it speaks a convention that existing RL tooling already understands:
+  - `reset() -> observation`
+  - `legal_actions() -> list[(row, col)]`
+  - `step(action) -> (observation, reward, done, info)`
+  - `clone() -> QueensEnv` — the one method plain Gym envs don't usually need but MCTS absolutely does, since search explores many hypothetical rollouts without mutating the real game state.
+  - `encode() -> np.ndarray` — the board as a fixed-shape tensor for the network (e.g. one channel per region ID, one for placed crowns, one for dot/marked cells).
+  - `render()` — an ASCII dump for debugging a training run from the terminal.
+- A design decision to make early: puzzle size varies by difficulty (6×6 up to 9×9/10×10 per the Phase 5 tiers), but a neural net wants a fixed input shape. The low-effort standard answer is to pad every board up to the largest size and add a mask channel marking real vs. padding cells, so one network can train across all difficulties instead of needing one per size.
+
+Documentation for this layer should be written alongside the code, not bolted on afterward:
+- Docstrings on every public method in `env.py` stating the observation shape, the action space, and reward semantics — this is what actually gets read when you come back to this months later.
+- A short `docs/rl_environment.md` (or README section) with a five-line quickstart: load a puzzle, instantiate `QueensEnv`, take one random legal action, print the result. One working example is usually enough to unblock plugging in a new algorithm without re-reading the whole module.
+- An `examples/` folder with two scripts: a random-action baseline (sanity-checks that the env terminates and rewards behave), and an MCTS/self-play stub that sketches where the policy/value network plugs in without fully implementing it — so starting the real algorithm later is filling in a function body, not designing an interface from scratch.
+- A parity test that runs a handful of fixture puzzles through both the JS rules (Phase 3) and `rules.py`, asserting they agree on every legal/illegal move. This matters more than it sounds — any silent divergence means the agent would be training against a subtly different game than the one on the site.
+
+*Test before moving on:*
+- Run the parity test suite (Python `rules.py` vs. JS rules) across all fixture puzzles and confirm 100% agreement on legal/illegal moves before trusting any training run.
+- Run the random-action baseline script end to end and confirm it terminates (no infinite loop) and reports a sane win/loss rate.
+- From a Python REPL, manually call each `env.py` method against one known puzzle and check the outputs against what you'd expect by hand (e.g., `legal_actions()` should shrink exactly as predicted after placing a couple of crowns).
+
+**Phase 6 — Quality-of-life polish**
+Timer, mistake counter, undo/redo, a "clear board" button, a hint system (highlight one deducible cell), a subtle win animation, and a difficulty selector (Easy / Medium / Hard / Impossible) that pulls from the difficulty-tagged puzzle pool built in Phase 5. This is also where a p5.js or CSS-animation layer for the win state fits nicely if you want that visual flourish.
+
+*Test before moving on:*
+- Timer starts, pauses/resumes, and resets correctly across a full attempt, including backgrounding and returning to the tab.
+- Mistake counter increments only on genuine rule violations — not on dot-marking, undo, or clearing.
+- Undo/redo behaves correctly through a full solve, including at the very start (nothing to undo) and right after a win.
+- Request a hint on an unstarted puzzle and confirm it returns a genuinely deducible cell, not a random or unsolvable one.
+- Difficulty selector: confirm each of the four options loads a puzzle from the correct tier, not just a random one.
+- Re-run the Phase-2 style input check (mouse, finger, S Pen) specifically against the new buttons (clear, undo, hint, difficulty) — new UI controls need the same tap-target and reliability check the board cells got, and it's easy to forget on newly-added buttons.
+
+**Phase 7 — Daily puzzle & persistence**
+Use the current date to deterministically pick/seed a puzzle (same approach as Wordle) so everyone gets the same puzzle on the same day. Use `localStorage` to persist today's progress across page reloads and to track streaks/stats, since there's no backend.
+
+*Test before moving on:*
+- Reload the page several times and confirm today's puzzle stays the same each time.
+- Change your system/dev-tools clock forward a day and confirm a different puzzle loads.
+- Close the tab mid-solve, reopen, and confirm placed crowns/dots are restored correctly from `localStorage`.
+- Clear `localStorage` manually and confirm the app degrades gracefully (starts fresh) rather than erroring.
+- Specifically test persistence on the S25 Ultra's browser after backgrounding the tab for a while — some Android browsers reclaim memory aggressively, and it's worth confirming your saved progress survives that rather than assuming desktop behavior carries over.
+
+**Phase 8 — Mobile & stylus hardening + PWA pass**
+Since responsive, pointer-first layout was built in from Phase 1 rather than left until now, this phase is a hardening pass rather than a rebuild: test thoroughly on your actual S25 Ultra (not just a resized desktop browser window — real touch/pen behavior and real viewport quirks differ), check safe-area insets on the notch/curved edges (`env(safe-area-inset-*)` in CSS) so the board isn't clipped, and confirm nothing relies on `:hover` alone for information the player needs (finger touch has no hover; the S Pen does, so any hover-dependent affordance should degrade gracefully for finger users rather than assuming pen). Since this is your primary platform, it's also worth adding a `manifest.json` and a couple of icon sizes so you can "Add to Home Screen" and get an app-like icon/launch experience instead of a browser tab — a small addition that goes a long way for something you'll open daily.
+
+*Test before moving on:*
+- Full playthrough on the S25 Ultra in portrait, finger only.
+- Full playthrough on the S25 Ultra in portrait, S Pen only.
+- Full playthrough on the S25 Ultra in landscape, both input methods.
+- Check the board near the top/bottom/curved edges of the screen for any clipping from safe-area insets.
+- Add to Home Screen, launch from the icon, and confirm it opens in standalone/app mode rather than showing a browser URL bar.
+- Try to use every feature (not just the board — buttons, difficulty selector, hints) using only tap/pen contact, no mouse, to confirm nothing silently depends on `:hover`.
+
+**Phase 9 — Share results & final deploy polish**
+Add a Wordle-style shareable result string (emoji grid or time-to-solve), double check the GitHub Pages deploy is stable, add a basic README, and do a pass on accessibility (keyboard navigation, ARIA labels on cells, color-blind-friendly region patterns in addition to color — genuinely important here since the whole puzzle is color-coded).
+
+*Test before moving on:*
+- Generate a share string after a real solve and paste it into Notes/Messages to confirm formatting survives mobile copy-paste (no broken emoji, no stray whitespace).
+- Keyboard-only navigation pass on desktop, and a screen-reader pass (TalkBack) on the S25 Ultra, confirming cells announce useful labels.
+- Final live-site smoke test: open the actual GitHub Pages URL fresh (not localhost) on both desktop and the S25 Ultra, with the S Pen, and play one full puzzle start to finish.
+
+## Suggested first commit
+
+Phases 0–3 are a good "walking skeleton" to build in one sitting: a single playable puzzle with full rule-checking and win detection, deployed live, and already validated with mouse, finger, and S Pen input. Everything after that (more puzzles, generation, polish, persistence) is additive and can be picked up in any order based on what you're most excited to build next.

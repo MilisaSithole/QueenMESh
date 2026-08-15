@@ -1,0 +1,72 @@
+/* QueenMESh — Phase 0 scaffolding.
+   Mobile-first from the start: the phone is the primary target, desktop is the
+   wider layout that falls out of it. */
+
+:root {
+  --bg: #1b1b1f;
+  --surface: #26262c;
+  --text: #f2f2f5;
+  --text-dim: #a0a0ab;
+  --accent: #e8b931;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  -webkit-text-size-adjust: 100%;
+}
+
+.app {
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  padding: 2rem 1rem;
+  /* Curved/notched edges on the S25 Ultra — honoured from the first screen so
+     later phases inherit it rather than retrofitting. */
+  padding-left: max(1rem, env(safe-area-inset-left));
+  padding-right: max(1rem, env(safe-area-inset-right));
+  padding-top: max(2rem, env(safe-area-inset-top));
+  padding-bottom: max(2rem, env(safe-area-inset-bottom));
+  text-align: center;
+}
+
+.title {
+  margin: 0;
+  font-size: clamp(2rem, 9vmin, 3.5rem);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--accent);
+}
+
+.tagline {
+  margin: 0;
+  max-width: 32ch;
+  font-size: clamp(0.95rem, 3.5vmin, 1.15rem);
+  line-height: 1.5;
+  color: var(--text-dim);
+}
+
+.build {
+  margin: 1.5rem 0 0;
+  padding: 0.4rem 0.75rem;
+  border-radius: 999px;
+  background: var(--surface);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.8rem;
+  color: var(--text-dim);
+}
