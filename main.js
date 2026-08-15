@@ -1,14 +1,14 @@
-// QueenMESh — Phase 1.1: static board rendering.
+// QueenMESh — Phase 1.2: static board rendering with region boundaries.
 //
-// Renders a puzzle as a CSS grid of cells coloured by region. No interactivity
-// yet; Phase 2 adds pointer handling and Phase 1.2 replaces the uniform cell
-// separators with real region-boundary borders.
+// Renders a puzzle as a CSS grid of cells coloured by region, with heavy
+// borders marking region boundaries and soft hairlines inside them. No
+// interactivity yet; Phase 2 adds pointer handling.
 //
 // Everything here is driven by puzzle.size. The 5x5 in puzzles.js is only a
 // scaffolding size — the shipping range is 6x6 to 9x9 — so no dimension, loop
 // bound, or palette entry may assume 5.
 
-const BUILD_MARKER = 'build 003';
+const BUILD_MARKER = 'build 006';
 
 // Raised only if a board is ever authored larger than the palette can colour.
 // The 9-colour ceiling is a real constraint, not an arbitrary one: see the
@@ -20,9 +20,9 @@ const MAX_BOARD_SIZE = 9;
  *
  * Each cell carries data-row / data-col / data-region. Those attributes do
  * real work beyond debugging: region colour is applied by CSS attribute
- * selector (so Phase 9 can attach colour-blind patterns without touching
- * markup), and Phase 2 reads row/col off the event target so a single
- * delegated listener on the container replaces N-squared listeners.
+ * selector (so Phase 6.5 can attach region patterns without touching markup),
+ * and Phase 2 reads row/col off the event target so a single delegated
+ * listener on the container replaces N-squared listeners.
  */
 function renderBoard(boardEl, puzzle) {
   const { size, regions } = puzzle;
@@ -37,6 +37,31 @@ function renderBoard(boardEl, puzzle) {
       cell.dataset.row = row;
       cell.dataset.col = col;
       cell.dataset.region = regions[row][col];
+
+      // Region boundaries. Both cells sharing a boundary mark it, each drawing
+      // half the width, so the line ends up centred on the grid line and
+      // corners join cleanly -- see the box-shadow comment in style.css for
+      // why drawing it once from a single side leaves notches at corners.
+      //
+      // Hairlines are the exception: they are drawn once, on the right and
+      // bottom, so only those two sides have a "no neighbour" case to suppress.
+      const region = regions[row][col];
+
+      if (col === size - 1) {
+        cell.classList.add('last-col');
+      } else if (region !== regions[row][col + 1]) {
+        cell.classList.add('b-r');
+      }
+
+      if (row === size - 1) {
+        cell.classList.add('last-row');
+      } else if (region !== regions[row + 1][col]) {
+        cell.classList.add('b-b');
+      }
+
+      if (col > 0 && region !== regions[row][col - 1]) cell.classList.add('b-l');
+      if (row > 0 && region !== regions[row - 1][col]) cell.classList.add('b-t');
+
       cells.append(cell);
     }
   }

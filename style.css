@@ -1,6 +1,10 @@
-/* QueenMESh — Phase 1.1: static board rendering.
+/* QueenMESh — Phase 1.2: region-boundary borders and responsive hardening.
    Mobile-first: the phone is the primary target and desktop is the wider
-   layout that falls out of it. */
+   layout that falls out of it.
+
+   Every colour is a token on :root with no hardcoded hex in the rules below,
+   which is what reduces the Phase 6.5 light theme to one override block
+   rather than a stylesheet audit. */
 
 :root {
   --bg: #1b1b1f;
@@ -10,9 +14,19 @@
   --accent: #e8b931;
   --danger: #ff6b6b;
 
-  --grid-line: #15151a;
-  --hairline: 1px;
-  --frame: 3px;
+  /* Two weights of line, and the distinction between them is the whole point
+     of this phase: a soft hairline separates cells *within* a region so the
+     region still reads as one shape, while a heavy near-black line marks a
+     genuine region boundary. Getting this wrong -- two weights too close
+     together -- is what makes a Queens board unreadable.
+
+     Only the colours live here. The widths are derived per-board in .board
+     below, because a fixed pixel width cannot read correctly at both ends of
+     the size range: 3px is 6.7% of a 45px cell on a 9x9 phone board but only
+     2.7% of a 110px cell on a 5x5 desktop board, so it looks heavy on one and
+     nearly absent on the other. */
+  --grid-line: #0d0d10;
+  --cell-line: rgba(0, 0, 0, 0.3);
 
   /* Nine region colours, because the shipping range tops out at 9x9 and a
      board of N regions needs N distinct fills. Only five are used by the
@@ -26,8 +40,8 @@
         prefix of length N is spread around the wheel — a 5-region board takes
         --region-0..4 and gets crimson/emerald/yellow/indigo/lime rather than
         five neighbouring warm tones. The hue of each entry is noted below.
-     2. Every fill clears 4.8:1 contrast against the near-black used for the
-        grid lines (measured, range 4.86 to 13.17), so the Phase 2 crown and
+     2. Every fill clears 5:1 contrast against the near-black used for the
+        grid lines (measured, range 5.18 to 14.04), so the Phase 2 crown and
         dot glyphs can be one dark colour on all nine rather than needing a
         per-region glyph colour. Crimson, indigo and violet are lightened a
         step from their most vivid form specifically to hold that floor — if
@@ -68,11 +82,10 @@ body {
 }
 
 .app {
-  min-height: 100%;
+  height: 100%;
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
   gap: 1rem;
   /* Horizontal padding is deliberately tiny. At 9x9 on a ~412px-wide phone
      every pixel of board width is load-bearing for the ~44px tap target, so
@@ -96,30 +109,125 @@ body {
   color: var(--text);
 }
 
+/* Takes whatever vertical space the title and status line leave over, and
+   centres the board inside it. min-height:0 is the part that matters: without
+   it a flex item refuses to shrink below its content size, and the board
+   would push the status line off-screen in landscape. */
+.board-area {
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
+  display: grid;
+  place-items: center;
+  /* Makes this element a size container so the board can be sized in cqmin
+     units below -- i.e. against the space actually left over, in whichever
+     axis is scarcer. */
+  container-type: size;
+}
+
 /* --board-size is set from JS off puzzle.size, so the same rules lay out a
    5x5 scaffold and a 9x9 shipping board with no CSS change. */
 .board {
   display: grid;
   grid-template-columns: repeat(var(--board-size, 5), 1fr);
   grid-template-rows: repeat(var(--board-size, 5), 1fr);
-  /* 98vw keeps 9x9 cells just above the 44px tap-target floor on a 412px
-     phone; 68vh keeps the board on screen in landscape, where height rather
-     than width is the binding dimension; 34rem stops it ballooning on
-     desktop. */
-  width: min(98vw, 68vh, 34rem);
+  /* Sizing note, because the obvious version of this is subtly wrong:
+     `width: <something>` + `aspect-ratio: 1` + `max-height` does NOT keep the
+     board square. With a definite width the height is derived from the ratio
+     and then clamped by max-height, but the width is never recomputed -- so a
+     short viewport yields a wide rectangle rather than a smaller square.
+
+     Sizing against the *container* instead avoids the problem: cqmin is the
+     smaller of the leftover area's two axes, so one declaration covers both
+     orientations and needs no hand-tuned vh cap to re-tune whenever the
+     surrounding chrome changes. 34rem stops the board ballooning on desktop.
+
+     The plain-vw line is a fallback for engines without container queries:
+     they drop the cqmin declaration and keep this one, where 98vw holds 9x9
+     cells just above the 44px tap-target floor on a 412px phone and 68vh
+     approximates the landscape fit. */
+  --board-px: min(98vw, 68vh, 34rem);
+  --board-px: min(100cqmin, 34rem);
+
+  /* Line weights derived from the cell size so a 9x9 phone board and a 5x5
+     desktop board read the same. The clamps keep boundaries from vanishing on
+     a tiny board or turning into slabs on a large one. The ratio between the
+     two weights is what the eye actually reads as "region edge" versus "cell
+     edge", so keep boundaries around 4-6x the hairline when retuning. */
+  --cell-px: calc(var(--board-px) / var(--board-size, 5));
+  --hairline: max(1px, calc(var(--cell-px) * 0.012));
+  --boundary: clamp(3px, calc(var(--cell-px) * 0.06), 7px);
+  --frame: var(--boundary);
+
+  /* Half a boundary, drawn by each of the two cells that share it, plus a
+     sliver of overlap so the two halves cannot leave an antialiasing seam
+     down the middle at fractional widths. */
+  --half-boundary: calc(var(--boundary) / 2 + 0.25px);
+
+  width: var(--board-px);
+  max-width: 100%;
   aspect-ratio: 1;
-  /* Phase 1.1 draws plain uniform separators by letting the board background
-     show through the grid gaps. Phase 1.2 replaces this with thick borders
-     drawn only on genuine region boundaries. */
-  gap: var(--hairline);
   background: var(--grid-line);
   border: var(--frame) solid var(--grid-line);
   border-radius: 6px;
 }
 
+/* Cell separators are drawn as inset box-shadows rather than real borders so
+   they take up no layout space. That keeps every cell's content box exactly
+   the same size regardless of how many heavy edges it carries, which is what
+   will let Phase 2 centre a crown glyph without it drifting a pixel or two on
+   boundary cells.
+
+   The two line weights are drawn differently, for a reason worth keeping:
+
+   * Hairlines are drawn once, by the cell above or to the left, on its right
+     and bottom edge only. Cheap, and their joints are too thin to notice.
+
+   * Boundaries are drawn in halves, by BOTH cells that share the edge. Drawing
+     a boundary once puts the whole line inside one cell, which offsets it from
+     the true grid line -- verticals sit to the left of it, horizontals sit
+     above it. Where a boundary turns a corner the two segments then land in
+     diagonally opposite quadrants of the vertex and never meet, leaving a
+     visible notch in the outline. Halving centres each line on its grid line,
+     so corners and T-junctions close up. Two halves also means no doubled
+     thickness, which is the trap that made drawing-once look attractive.
+
+   The board's own border supplies the outer frame, so cells on the board edge
+   draw nothing on that side. */
 .cell {
   background: var(--surface);
+
+  /* Right and bottom default to a hairline; left and top to nothing, since
+     an unshared internal line is always drawn by the cell above or left. */
+  --edge-r: var(--hairline);
+  --edge-b: var(--hairline);
+  --edge-l: 0px;
+  --edge-t: 0px;
+  --color-r: var(--cell-line);
+  --color-b: var(--cell-line);
+  --color-l: var(--grid-line);
+  --color-t: var(--grid-line);
+
+  box-shadow:
+    inset calc(-1 * var(--edge-r)) 0 0 var(--color-r),
+    inset 0 calc(-1 * var(--edge-b)) 0 var(--color-b),
+    inset var(--edge-l) 0 0 var(--color-l),
+    inset 0 var(--edge-t) 0 var(--color-t);
 }
+
+/* Set by JS on each side whose neighbour belongs to a different region. Both
+   cells sharing a boundary get one of these, which is what centres the line. */
+.cell.b-r { --edge-r: var(--half-boundary); --color-r: var(--grid-line); }
+.cell.b-b { --edge-b: var(--half-boundary); --color-b: var(--grid-line); }
+.cell.b-l { --edge-l: var(--half-boundary); }
+.cell.b-t { --edge-t: var(--half-boundary); }
+
+/* 0px, not 0. A unitless zero here makes calc(-1 * var(--edge-r)) resolve to a
+   <number> rather than a <length>, which invalidates the whole box-shadow
+   declaration and silently removes *every* edge from the cell -- not just the
+   one being zeroed. */
+.cell.last-col { --edge-r: 0px; }
+.cell.last-row { --edge-b: 0px; }
 
 .cell[data-region="0"] { background: var(--region-0); }
 .cell[data-region="1"] { background: var(--region-1); }
