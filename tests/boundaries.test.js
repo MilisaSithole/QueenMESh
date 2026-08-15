@@ -125,7 +125,7 @@ suite('boundaries — every shared edge is claimed by both cells');
 
 for (const size of [5, 6, 7, 8, 9]) {
   const puzzle = size === 5 ? undefined : syntheticPuzzle(size, size * 7919);
-  const app = loadApp(puzzle);
+  const app = loadApp({ puzzle });
   const regions = puzzle ? puzzle.regions : null;
 
   test(`${size}x${size}: b-r/b-l and b-b/b-t agree with the region grid`, () => {
@@ -182,7 +182,7 @@ for (const size of [6, 7, 8, 9]) {
     let controlTotal = 0;
     for (let seed = 1; seed <= 25; seed++) {
       const puzzle = syntheticPuzzle(size, seed);
-      const app = loadApp(puzzle);
+      const app = loadApp({ puzzle });
       const edge = edgeReader(app);
       total += countNotches(size, puzzle.regions, edge, false);
       controlTotal += countNotches(size, puzzle.regions, edge, true);

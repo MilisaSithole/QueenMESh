@@ -21,7 +21,7 @@ const path = require('path');
 const { execFileSync } = require('child_process');
 
 const ROOT = path.join(__dirname, '..');
-const FILES = ['main.js', 'style.css', 'puzzles.js'];
+const FILES = ['main.js', 'style.css', 'puzzles.js', 'index.html'];
 const backup = Object.fromEntries(
   FILES.map((f) => [f, fs.readFileSync(path.join(ROOT, f), 'utf8')])
 );
@@ -59,6 +59,42 @@ const mutations = [
     (s) => s.replace('[1, 1, 0, 0, 0],', '[1, 0, 0, 0, 0],')],
   ['puzzles.js', 'the declared solution is wrong',
     (s) => s.replace('solution: [2, 0, 3, 1, 4]', 'solution: [2, 0, 3, 4, 1]')],
+  // Verified to take the 9x9 from 1 solution to 8. Most single-cell edits here
+  // leave it unique, so this one is picked deliberately rather than by eye.
+  ['puzzles.js', 'the 9x9 gains seven extra solutions',
+    (s) => s.replace('[2, 2, 2, 1, 1, 0, 0, 0, 3],', '[0, 2, 2, 1, 1, 0, 0, 0, 3],')],
+  ['puzzles.js', 'a 9x9 region becomes disconnected',
+    (s) => s.replace('[7, 7, 7, 7, 6, 6, 8, 8, 8],', '[7, 7, 7, 0, 6, 6, 8, 8, 8],')],
+
+  // Phase 2.2 — puzzle selection
+  ['main.js', '?puzzle= is ignored and the first board always loads',
+    (s) => s.replace('const requested = new URLSearchParams(search || \'\').get(\'puzzle\');', 'const requested = null;')],
+  ['main.js', 'an unknown puzzle id falls back silently',
+    (s) => s.replace(/notice: `no puzzle[^`]*`,/, 'notice: null,')],
+  ['main.js', 'the fallback notice never reaches the status line',
+    (s) => s.replace("if (notice) statusEl.dataset.state = 'warning';", '')],
+
+  // Phase 2.2 — rendering integrity
+  ['main.js', 'validation is skipped, so malformed puzzles render as nonsense',
+    (s) => s.replace(/^function describeProblem\(puzzle\) \{/m, 'function describeProblem(puzzle) {\n  return null;')],
+  ['main.js', 'data-region is written from the wrong cell',
+    (s) => s.replace('cell.dataset.region = regions[row][col];', 'cell.dataset.region = regions[col][row];')],
+  ['main.js', 'the glyph <use> target is never updated',
+    (s) => s.replace("if (target) cell.querySelector('use').setAttribute('href', target);", '')],
+  ['main.js', 'cells do not start empty',
+    (s) => s.replace('cell.dataset.state = STATE_NAMES[EMPTY];', 'cell.dataset.state = STATE_NAMES[MARK];')],
+  ['index.html', 'a sprite symbol is renamed out from under main.js',
+    (s) => s.replace('id="glyph-mark"', 'id="glyph-cross"')],
+  // Moves the crown's base bar, which shifts the bounding box. Nudging a point
+  // that is not an extreme leaves the box unchanged and proves nothing.
+  ['index.html', 'the crown glyph drifts off-centre',
+    (s) => s.replace('y="18.25"', 'y="20.25"')],
+
+  // Phase 2.2 — the tap-target invariant
+  ['style.css', 'page padding widens until 9x9 cells fall under 44px',
+    (s) => s.replace('padding-left: max(0.25rem, env(safe-area-inset-left));', 'padding-left: max(1.5rem, env(safe-area-inset-left));')],
+  ['style.css', 'the board no longer runs edge to edge',
+    (s) => s.replace('--board-px: min(98vw, 68vh, 34rem);', '--board-px: min(88vw, 68vh, 34rem);')],
 ];
 
 const restore = () => {

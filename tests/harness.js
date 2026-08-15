@@ -19,6 +19,11 @@ function test(name, fn) {
   }
 }
 
+/** Print a measured value alongside a test, for numbers worth seeing pass. */
+function note(message) {
+  console.log('        ' + message);
+}
+
 function eq(got, want, what) {
   if (JSON.stringify(got) !== JSON.stringify(want)) {
     throw new Error(
@@ -31,4 +36,4 @@ function ok(condition, message) {
   if (!condition) throw new Error(message || 'expected a truthy value');
 }
 
-module.exports = { suite, test, eq, ok, state };
+module.exports = { suite, test, note, eq, ok, state };

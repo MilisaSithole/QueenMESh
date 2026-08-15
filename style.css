@@ -315,6 +315,11 @@ body {
   color: var(--text-dim);
 }
 
+.status[data-state="warning"] {
+  background: color-mix(in srgb, var(--region-2) 18%, var(--surface));
+  color: var(--region-2);
+}
+
 .status[data-state="error"] {
   background: color-mix(in srgb, var(--danger) 20%, var(--surface));
   color: var(--danger);

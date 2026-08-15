@@ -13,10 +13,12 @@ The S25 Ultra is about 412 CSS px wide in portrait. Against the ~44px minimum ta
 | Board | Cell size at 412px wide | Verdict |
 | --- | --- | --- |
 | 8×8 | ~51px | comfortable |
-| 9×9 | ~45px | just clears 44px — requires a near-edge-to-edge board |
+| 9×9 | **44.20px** (measured) | clears 44px by 0.2px — requires a near-edge-to-edge board |
 | 10×10 | ~41px | **below the minimum — does not fit the primary device** |
 
 So 10×10 is out on the primary platform, and 9×9 only works if the board runs nearly edge-to-edge on mobile rather than sitting inside generous page padding. That's a layout constraint to honour from Phase 1, not a Phase 8 adjustment.
+
+**The 9×9 margin is 0.2px, so treat it as a hard budget.** The measured figure accounts for the page padding (0.25rem a side) and the board's own 3px frame eating into the track area, which the original estimate did not. Widening page padding to even 0.5rem, or thickening the frame, drops 9×9 below the minimum. `tests/rendering.test.js` recomputes this from the CSS constants so a regression fails there rather than on the phone — but the arithmetic assumes a 412px viewport, and a narrower phone would not fit 9×9 at all.
 
 Two knock-on effects worth knowing up front:
 
@@ -176,7 +178,13 @@ Two carry-overs from earlier phases land here. The Phase 1.1 puzzle object was a
 - Deliberately break a puzzle JSON (typo a region ID) and confirm it fails loudly/visibly rather than silently rendering a broken board — catching data bugs here saves time once Phase 5's generator is producing puzzles automatically.
 
 **Phase 5 — Puzzle generator**
-This is the hard, interesting part, and worth its own phase rather than bolting it onto Phase 4. Approach: (a) generate a random valid solution — N crown positions satisfying row/column/region/adjacency constraints — by backtracking; (b) grow color regions outward from each crown via randomized flood-fill until every cell is assigned a region; (c) verify the puzzle has a *unique* solution by running your Phase-3 constraint solver and confirming exactly one valid crown arrangement exists, discarding and retrying if not; (d) score difficulty using the technique-tier method below, so puzzles can be sorted into buckets rather than hand-labeled by feel.
+This is the hard, interesting part, and worth its own phase rather than bolting it onto Phase 4. Approach: (a) generate a random valid solution — N crown positions satisfying row/column/region/adjacency constraints — by backtracking; (b) grow color regions outward from each crown via randomized flood-fill until every cell is assigned a region; (c) get the puzzle to a *unique* solution — see the warning below, because the obvious way does not work; (d) score difficulty using the technique-tier method below, so puzzles can be sorted into buckets rather than hand-labeled by feel.
+
+**Step (c) cannot be "discard and retry", and this is measured, not theoretical.** Authoring the dev 9×9 in Phase 2.2 tried exactly that: grow regions at random, keep the layout only if it admits a single solution. At 9×9 there are **47,622** crown arrangements satisfying row/column/adjacency, and **143,000 random layouts produced zero unique puzzles**. Rejection sampling is hopeless at this size — it works at 5×5 (14 arrangements) purely because the search space is tiny, which makes small-board success actively misleading.
+
+What does work is **grow, then refine**: count the solutions; if there is more than one, pick an unwanted solution, find a row where it disagrees with the intended one, and reassign that cell to a neighbouring region so the unwanted solution now double-books a region. Accept the move only if it reduces the solution count and leaves every region contiguous and still holding exactly one intended crown; repeat. That found a unique 9×9 in **8** grown layouts. The working implementation is in the Phase 2.2 history and is worth porting rather than rediscovering.
+
+Two consequences for this phase: budget for the refinement loop rather than assuming a rejection filter, and expect region *balance* to need its own pass — refined layouts skew toward one large region, so generating several and keeping the most even is worth the extra cycles.
 
 ### Deciding difficulty (Easy / Medium / Hard / Impossible)
 

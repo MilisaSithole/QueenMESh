@@ -89,10 +89,12 @@ class Fragment extends Element {
  * Evaluate the real puzzles.js + main.js against a fresh fake document and
  * return handles for driving the resulting board.
  *
- * Pass `puzzle` to substitute a synthetic board — useful for exercising sizes
- * the shipped puzzle set does not cover yet.
+ * @param {object} [options]
+ * @param {object} [options.puzzle]  substitute a synthetic board, for sizes the
+ *                                   shipped puzzle set does not cover
+ * @param {string} [options.search]  query string, e.g. '?puzzle=dev-9x9'
  */
-function loadApp(puzzle) {
+function loadApp({ puzzle, search = '' } = {}) {
   const board = new Element('div');
   board.className = 'board';
   const status = new Element('p');
@@ -111,6 +113,8 @@ function loadApp(puzzle) {
       ) || null;
     },
   };
+
+  global.location = { search };
 
   const puzzlesSource = puzzle
     ? `const PUZZLES = ${JSON.stringify([puzzle])};`

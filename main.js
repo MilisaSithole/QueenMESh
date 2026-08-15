@@ -9,7 +9,7 @@
 // scaffolding size — the shipping range is 6x6 to 9x9 — so no dimension, loop
 // bound, or palette entry may assume 5.
 
-const BUILD_MARKER = 'build 008';
+const BUILD_MARKER = 'build 009';
 
 // Raised only if a board is ever authored larger than the palette can colour.
 // The 9-colour ceiling is a real constraint, not an arbitrary one: see the
@@ -253,6 +253,32 @@ function endGesture(event) {
 }
 
 /**
+ * Pick which puzzle to load from `?puzzle=<id>`.
+ *
+ * A stopgap until Phase 4's picker, so the 9x9 can be reached for tap-target
+ * testing. Keyed by id rather than index so a URL keeps working when the
+ * puzzle list is reordered.
+ *
+ * An unrecognised id falls back to the first puzzle but reports itself: a
+ * silent fallback would look identical to a typo in the URL, and you would
+ * spend a while wondering why the 9x9 "isn't working".
+ *
+ * Pure, so it can be tested without a DOM or a browser.
+ */
+function selectPuzzle(puzzles, search) {
+  const requested = new URLSearchParams(search || '').get('puzzle');
+  if (!requested) return { puzzle: puzzles[0], notice: null };
+
+  const found = puzzles.find((p) => p.id === requested);
+  if (found) return { puzzle: found, notice: null };
+
+  return {
+    puzzle: puzzles[0],
+    notice: `no puzzle "${requested}" — loaded ${puzzles[0].id}`,
+  };
+}
+
+/**
  * Cheap structural checks on puzzle data. Phase 4 owns proper loud-failure
  * validation of authored puzzle files; this is just enough to make a
  * malformed board obvious now instead of rendering as silent visual nonsense.
@@ -284,7 +310,7 @@ function describeProblem(puzzle) {
 const boardEl = document.getElementById('board');
 const statusEl = document.getElementById('status');
 
-const puzzle = PUZZLES[0];
+const { puzzle, notice } = selectPuzzle(PUZZLES, location.search);
 const problem = describeProblem(puzzle);
 
 if (problem) {
@@ -297,5 +323,9 @@ if (problem) {
   boardEl.addEventListener('pointermove', onPointerMove);
   boardEl.addEventListener('pointerup', onPointerUp);
   boardEl.addEventListener('pointercancel', onPointerCancel);
-  statusEl.textContent = `${puzzle.id} · ${puzzle.size}×${puzzle.size} · ${BUILD_MARKER}`;
+
+  statusEl.textContent = notice
+    ? `${notice} · ${BUILD_MARKER}`
+    : `${puzzle.id} · ${puzzle.size}×${puzzle.size} · ${BUILD_MARKER}`;
+  if (notice) statusEl.dataset.state = 'warning';
 }
