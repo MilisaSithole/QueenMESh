@@ -20,8 +20,23 @@ So 10×10 is out on the primary platform, and 9×9 only works if the board runs 
 
 Two knock-on effects worth knowing up front:
 
-- **The palette has to stretch to 9, and it is tuned for vividness over colorblind-safety.** Nine distinct fills already exceeds the 8 usable colors in the standard colorblind-safe categorical palette (Okabe-Ito), and the deliberate choice here is high-saturation jewel tones across the full hue wheel rather than a muted safe palette — the game should look striking. Two consequences follow. First, this makes Phase 9's "color-blind-friendly patterns" **load-bearing rather than optional**, since saturated hues are *less* separable under red-green color blindness, not more. Defining all 9 colors in Phase 1 and keeping a `data-region` attribute on every cell means Phase 9 can attach patterns purely in CSS, with no markup change. Second, the palette is ordered by interleaved hue rather than sequentially, so that any prefix of length N is spread around the wheel — otherwise a 5-region board would draw indices 0–4 and come out as five neighboring warm tones. Keep that property when adding or reordering colors.
+- **The palette has to stretch to 9, and it is tuned for vividness over colorblind-safety.** Nine distinct fills already exceeds the 8 usable colors in the standard colorblind-safe categorical palette (Okabe-Ito), and the deliberate choice here is high-saturation jewel tones across the full hue wheel rather than a muted safe palette — the game should look striking. Two consequences follow. First, this makes the region-patterns toggle **load-bearing rather than optional**, since saturated hues are *less* separable under red-green color blindness, not more — which is why it ships as a real setting in Phase 6.5 rather than as a Phase 9 accessibility afterthought (see "Settings: theme and region patterns" below). Defining all 9 colors in Phase 1 and keeping a `data-region` attribute on every cell means those patterns attach purely in CSS, with no markup change. Second, the palette is ordered by interleaved hue rather than sequentially, so that any prefix of length N is spread around the wheel — otherwise a 5-region board would draw indices 0–4 and come out as five neighboring warm tones. Keep that property when adding or reordering colors.
 - **Size is a *secondary* difficulty lever.** Per the technique-tier section below, difficulty comes from how deep the deduction runs, not from N. A small grid can be brutal and a large one trivial. Size rides along with the tier rating; it never substitutes for it.
+
+## Settings: theme and region patterns
+
+Two player-facing settings, both toggles, both persisted:
+
+- **Theme — System / Light / Dark.** Three states, not two. "System" follows `prefers-color-scheme` and is the default, so the game matches the phone's own day/night behaviour without the player configuring anything; Light and Dark are explicit overrides that stick.
+- **Region patterns — on / off.** Overlays a distinct texture (stripes, dots, crosshatch, etc.) on each region *in addition to* its colour, giving a redundant non-colour channel for telling regions apart.
+
+**On naming the second one.** It's tempting to call it "colour-blind mode", but "region patterns" is the more honest label and the better UI string. The setting doesn't detect, simulate, or correct anything about the player's vision — it adds a second visual channel. That framing also makes it obviously useful to players who aren't colour-blind at all (a 9×9 with nine saturated fills is busy for anyone), which raises the odds it actually gets switched on. Keep "colour-blind" in the setting's *description* text for discoverability, not in its label.
+
+**Defaults, and the honest trade-off.** Patterns default to **off**, because the saturated palette is a deliberate aesthetic choice and patterns dilute it. The cost of that default is real: a colour-blind player sees a hard-to-read board until they find the setting. Two cheap mitigations rather than pretending the cost away — put the settings control somewhere immediately visible rather than buried, and once persistence exists (Phase 7), remember the choice permanently so it's a one-time cost. Revisit this default if the game ever gets real players; "patterns on by default" is a defensible alternative.
+
+**Why theme tokens must exist from Phase 1 even though the toggle ships in Phase 6.5.** This is the same argument the plan already makes for the viewport meta tag and for mobile-first layout: retrofitting theming after all the CSS is written is significantly more painful than authoring it that way from the start. Concretely, that means every colour lives as a CSS custom property on `:root` from Phase 1 — no hardcoded hex values scattered through rules — with a `[data-theme="light"]` block overriding the chrome tokens and a `prefers-color-scheme` media query supplying the "System" behaviour. Phase 6.5 then only has to flip an attribute on `<html>`; it never has to go hunting for stray colours. **The app is dark-only today, so authoring a light theme is genuinely net-new design work** — that work belongs in Phase 6.5, but the token structure that makes it a one-file change belongs in Phase 1.
+
+**The gotcha: the contrast floor is theme-dependent.** The nine region fills were chosen against a measured contrast floor (4.86:1) versus the near-black used for grid lines and glyphs. If a light theme also lightens the grid lines and the crown/dot glyphs, that floor silently evaporates and the glyphs become unreadable on the brighter fills. The way to avoid the problem entirely: **keep the region fills, the grid lines, and the glyph colour identical across both themes, and let only the page chrome change** — background, text, panel surfaces, borders. The board is the game's visual identity and reads perfectly well on either chrome; holding it fixed means the measured contrast floor holds in both themes with no second round of colour tuning. Treat a change to grid-line or glyph colour in light mode as a decision that requires re-measuring all nine ratios, not a cosmetic tweak.
 
 ## Tech stack: is p5.js the right call?
 
@@ -65,6 +80,8 @@ Create the repo, a bare `index.html` + `style.css` + `main.js`, and push it live
 Hardcode a single small puzzle (say 5×5) as a 2D array of region IDs. Render it as a CSS grid of cells, each colored by its region, sized with relative units (`vmin`/`%`, not fixed pixels) so the whole board scales to fit a phone screen in portrait orientation without scrolling. Set the `viewport` meta tag (`width=device-width, initial-scale=1`) from this phase, not later — retrofitting it after other CSS is written is more painful than starting with it. No interactivity yet — just get the visual grid right, including a border style that makes region boundaries clearly readable (this is the #1 usability detail in the real game).
 
 **5×5 is a scaffolding size, not a shipping size.** It's chosen here only because it's small enough to eyeball the render and hand-solve while testing; the real range is 6×6–9×9 (see "Board size range" below). The practical consequence for this phase is that **nothing may hardcode 5** — the render loop, the CSS grid template, the palette lookup, and the sizing math all read N off the puzzle data. Get that right here and Phase 4 dropping in a 9×9 is a data change, not a code change. Likewise the palette should define all 9 region colors now, even though only 5 are used, so larger boards don't force a palette redesign later.
+
+The same "author it now, expose it later" logic applies to theming: **every color belongs in a CSS custom property on `:root` from this phase**, with no hardcoded hex values scattered through individual rules. The Light/Dark/System toggle doesn't ship until Phase 6.5, but structuring the colors as tokens now is what reduces that phase to adding one override block instead of auditing the whole stylesheet. See "Settings: theme and region patterns" above.
 
 The hardcoded puzzle must be a *genuine* puzzle with a unique solution, not a decorative arrangement of colors — Phase 3's test checklist solves it to verify win detection, so an unsolvable or multi-solution board leaves Phase 3 with nothing to validate against.
 
@@ -170,10 +187,30 @@ Timer, mistake counter, undo/redo, a "clear board" button, a hint system (highli
 - Difficulty selector: confirm each of the four options loads a puzzle from the correct tier, not just a random one.
 - Re-run the Phase-2 style input check (mouse, finger, S Pen) specifically against the new buttons (clear, undo, hint, difficulty) — new UI controls need the same tap-target and reliability check the board cells got, and it's easy to forget on newly-added buttons.
 
-**Phase 7 — Daily puzzle & persistence**
-Use the current date to deterministically pick/seed a puzzle (same approach as Wordle) so everyone gets the same puzzle on the same day. Use `localStorage` to persist today's progress across page reloads and to track streaks/stats, since there's no backend.
+**Phase 6.5 — Settings panel (theme & region patterns)**
+Add the settings surface and the two toggles described in "Settings: theme and region patterns" above. Three pieces of work, in rough order of effort:
+
+- **The light theme.** The app is dark-only up to this point, so this is the real work of the phase: author the `[data-theme="light"]` token block and the `prefers-color-scheme` query behind the "System" option. Per the section above, change only the page chrome — background, text, panel surfaces, borders — and leave the region fills, grid lines, and glyph colour fixed across both themes so the measured contrast floor carries over untouched.
+- **The pattern overlay.** Nine distinct textures keyed off the `data-region` attribute already present on every cell since Phase 1.1, so this attaches in CSS with no markup change. Patterns must survive on top of a crown or dot glyph without making either ambiguous — that's the detail most likely to need iteration.
+- **The panel itself.** A small settings control, reachable in one tap from the board and not buried behind a menu-within-a-menu (per the discoverability mitigation above). Applying a setting flips an attribute on `<html>`; nothing needs a re-render.
+
+Settings persistence rides along with Phase 7's `localStorage` work — if you build 6.5 first, hold the values in memory and wire storage in Phase 7; if you build Phase 7 first, persist settings in the same pass.
 
 *Test before moving on:*
+
+- Toggle through System / Light / Dark and confirm each applies immediately, with no flash of the wrong theme on switching.
+- With the setting on "System", change the phone's own light/dark mode and confirm the game follows it live, without a reload.
+- Set an explicit Light or Dark override, then change the system theme, and confirm the override *wins* rather than being silently overridden.
+- Turn region patterns on with a 9×9 loaded — the size where colour alone is weakest — and confirm all nine regions are distinguishable with the display forced to greyscale.
+- With patterns on, place a crown and a dot on several differently-patterned regions and confirm both glyphs stay unambiguous against the texture.
+- Check the crown/dot glyph contrast in *both* themes on all nine region colours; if grid-line or glyph colours ended up differing between themes after all, re-measure the nine ratios rather than trusting the Phase 1 numbers.
+- Re-run the Phase-2 input check (mouse, finger, S Pen) against the new settings controls, per the same reasoning as Phase 6's buttons.
+
+**Phase 7 — Daily puzzle & persistence**
+Use the current date to deterministically pick/seed a puzzle (same approach as Wordle) so everyone gets the same puzzle on the same day. Use `localStorage` to persist today's progress across page reloads and to track streaks/stats, since there's no backend. This is also where the Phase 6.5 settings (theme choice, region patterns on/off) get persisted — a preference that resets on every visit is worse than no preference at all, and it's the mitigation the patterns-default-off decision depends on.
+
+*Test before moving on:*
+- Set a non-default theme and turn patterns on, reload, and confirm both survive — then confirm they still survive after a full browser restart, not just an in-tab reload.
 - Reload the page several times and confirm today's puzzle stays the same each time.
 - Change your system/dev-tools clock forward a day and confirm a different puzzle loads.
 - Close the tab mid-solve, reopen, and confirm placed crowns/dots are restored correctly from `localStorage`.
@@ -192,7 +229,7 @@ Since responsive, pointer-first layout was built in from Phase 1 rather than lef
 - Try to use every feature (not just the board — buttons, difficulty selector, hints) using only tap/pen contact, no mouse, to confirm nothing silently depends on `:hover`.
 
 **Phase 9 — Share results & final deploy polish**
-Add a Wordle-style shareable result string (emoji grid or time-to-solve), double check the GitHub Pages deploy is stable, add a basic README, and do a pass on accessibility (keyboard navigation, ARIA labels on cells, color-blind-friendly region patterns in addition to color — genuinely important here since the whole puzzle is color-coded).
+Add a Wordle-style shareable result string (emoji grid or time-to-solve), double check the GitHub Pages deploy is stable, add a basic README, and do a pass on accessibility (keyboard navigation, ARIA labels on cells). The colour-coding side of accessibility is already handled by the Phase 6.5 region-patterns toggle, so what's left here is *verifying* it end to end — that cells announce their region by name and not by colour alone, that the pattern setting is reachable and announced by a screen reader like any other control, and that keyboard navigation reaches it.
 
 *Test before moving on:*
 - Generate a share string after a real solve and paste it into Notes/Messages to confirm formatting survives mobile copy-paste (no broken emoji, no stray whitespace).
