@@ -19,21 +19,34 @@
      Phase 1 puzzle; the rest are defined now so a larger board never forces a
      palette redesign.
 
-     Hues are spread wide and lightness is deliberately varied as a second
-     channel, which keeps regions separable in greyscale and under the common
-     forms of colour blindness. Nine still pushes past what the 8-colour
-     Okabe-Ito safe palette covers, so the largest boards genuinely need the
-     Phase 9 pattern pass — the data-region attribute on every cell is the
-     hook that lets patterns attach in CSS alone. */
-  --region-0: #e8a33d; /* orange     */
-  --region-1: #8ccde8; /* sky blue   */
-  --region-2: #58a860; /* green      */
-  --region-3: #efe07a; /* yellow     */
-  --region-4: #4a72a8; /* navy       */
-  --region-5: #c9503a; /* vermillion */
-  --region-6: #e39fc0; /* pink       */
-  --region-7: #aeb4bc; /* grey       */
-  --region-8: #9179c9; /* purple     */
+     High-saturation jewel tones spanning the full hue wheel. Two deliberate
+     properties beyond "looks good":
+
+     1. The order is not the hue order. Indices are interleaved so that any
+        prefix of length N is spread around the wheel — a 5-region board takes
+        --region-0..4 and gets crimson/emerald/yellow/indigo/lime rather than
+        five neighbouring warm tones. The hue of each entry is noted below.
+     2. Every fill clears 4.8:1 contrast against the near-black used for the
+        grid lines (measured, range 4.86 to 13.17), so the Phase 2 crown and
+        dot glyphs can be one dark colour on all nine rather than needing a
+        per-region glyph colour. Crimson, indigo and violet are lightened a
+        step from their most vivid form specifically to hold that floor — if
+        you retune them, re-check the ratio rather than eyeballing it.
+
+     Trade-off worth naming: saturated hues chosen for vividness are less
+     separable under red-green colour blindness than a muted safe palette
+     would be, which makes the Phase 9 pattern pass load-bearing rather than
+     optional. The data-region attribute on every cell is the hook that lets
+     those patterns attach in CSS alone, with no markup change. */
+  --region-0: #f43a5c; /* crimson  349 */
+  --region-1: #00c48c; /* emerald  162 */
+  --region-2: #ffd91c; /* yellow    50 */
+  --region-3: #6b78ff; /* indigo   234 */
+  --region-4: #5fd93a; /* lime     103 */
+  --region-5: #f050c8; /* magenta  315 */
+  --region-6: #12b5e8; /* cyan     193 */
+  --region-7: #ff7a18; /* orange    26 */
+  --region-8: #bd5cff; /* violet   280 */
 }
 
 * {
@@ -78,7 +91,9 @@ body {
   font-size: clamp(1.5rem, 6vmin, 2.25rem);
   font-weight: 700;
   letter-spacing: -0.02em;
-  color: var(--accent);
+  /* Neutral rather than gold: the board is now vivid enough that a saturated
+     heading competes with it. --accent is kept for the crown and win state. */
+  color: var(--text);
 }
 
 /* --board-size is set from JS off puzzle.size, so the same rules lay out a

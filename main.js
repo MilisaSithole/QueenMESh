@@ -8,7 +8,7 @@
 // scaffolding size — the shipping range is 6x6 to 9x9 — so no dimension, loop
 // bound, or palette entry may assume 5.
 
-const BUILD_MARKER = 'build 002';
+const BUILD_MARKER = 'build 003';
 
 // Raised only if a board is ever authored larger than the palette can colour.
 // The 9-colour ceiling is a real constraint, not an arbitrary one: see the
