@@ -1,6 +1,6 @@
-/* QueenMESh — Phase 0 scaffolding.
-   Mobile-first from the start: the phone is the primary target, desktop is the
-   wider layout that falls out of it. */
+/* QueenMESh — Phase 1.1: static board rendering.
+   Mobile-first: the phone is the primary target and desktop is the wider
+   layout that falls out of it. */
 
 :root {
   --bg: #1b1b1f;
@@ -8,6 +8,32 @@
   --text: #f2f2f5;
   --text-dim: #a0a0ab;
   --accent: #e8b931;
+  --danger: #ff6b6b;
+
+  --grid-line: #15151a;
+  --hairline: 1px;
+  --frame: 3px;
+
+  /* Nine region colours, because the shipping range tops out at 9x9 and a
+     board of N regions needs N distinct fills. Only five are used by the
+     Phase 1 puzzle; the rest are defined now so a larger board never forces a
+     palette redesign.
+
+     Hues are spread wide and lightness is deliberately varied as a second
+     channel, which keeps regions separable in greyscale and under the common
+     forms of colour blindness. Nine still pushes past what the 8-colour
+     Okabe-Ito safe palette covers, so the largest boards genuinely need the
+     Phase 9 pattern pass — the data-region attribute on every cell is the
+     hook that lets patterns attach in CSS alone. */
+  --region-0: #e8a33d; /* orange     */
+  --region-1: #8ccde8; /* sky blue   */
+  --region-2: #58a860; /* green      */
+  --region-3: #efe07a; /* yellow     */
+  --region-4: #4a72a8; /* navy       */
+  --region-5: #c9503a; /* vermillion */
+  --region-6: #e39fc0; /* pink       */
+  --region-7: #aeb4bc; /* grey       */
+  --region-8: #9179c9; /* purple     */
 }
 
 * {
@@ -34,39 +60,73 @@ body {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 0.75rem;
-  padding: 2rem 1rem;
-  /* Curved/notched edges on the S25 Ultra — honoured from the first screen so
-     later phases inherit it rather than retrofitting. */
-  padding-left: max(1rem, env(safe-area-inset-left));
-  padding-right: max(1rem, env(safe-area-inset-right));
-  padding-top: max(2rem, env(safe-area-inset-top));
-  padding-bottom: max(2rem, env(safe-area-inset-bottom));
+  gap: 1rem;
+  /* Horizontal padding is deliberately tiny. At 9x9 on a ~412px-wide phone
+     every pixel of board width is load-bearing for the ~44px tap target, so
+     the board has to run nearly edge to edge. Safe-area insets still win
+     where they are non-zero (curved edges, landscape). */
+  padding: 1.5rem 0.25rem;
+  padding-left: max(0.25rem, env(safe-area-inset-left));
+  padding-right: max(0.25rem, env(safe-area-inset-right));
+  padding-top: max(1.5rem, env(safe-area-inset-top));
+  padding-bottom: max(1.5rem, env(safe-area-inset-bottom));
   text-align: center;
 }
 
 .title {
   margin: 0;
-  font-size: clamp(2rem, 9vmin, 3.5rem);
+  font-size: clamp(1.5rem, 6vmin, 2.25rem);
   font-weight: 700;
   letter-spacing: -0.02em;
   color: var(--accent);
 }
 
-.tagline {
-  margin: 0;
-  max-width: 32ch;
-  font-size: clamp(0.95rem, 3.5vmin, 1.15rem);
-  line-height: 1.5;
-  color: var(--text-dim);
+/* --board-size is set from JS off puzzle.size, so the same rules lay out a
+   5x5 scaffold and a 9x9 shipping board with no CSS change. */
+.board {
+  display: grid;
+  grid-template-columns: repeat(var(--board-size, 5), 1fr);
+  grid-template-rows: repeat(var(--board-size, 5), 1fr);
+  /* 98vw keeps 9x9 cells just above the 44px tap-target floor on a 412px
+     phone; 68vh keeps the board on screen in landscape, where height rather
+     than width is the binding dimension; 34rem stops it ballooning on
+     desktop. */
+  width: min(98vw, 68vh, 34rem);
+  aspect-ratio: 1;
+  /* Phase 1.1 draws plain uniform separators by letting the board background
+     show through the grid gaps. Phase 1.2 replaces this with thick borders
+     drawn only on genuine region boundaries. */
+  gap: var(--hairline);
+  background: var(--grid-line);
+  border: var(--frame) solid var(--grid-line);
+  border-radius: 6px;
 }
 
-.build {
-  margin: 1.5rem 0 0;
+.cell {
+  background: var(--surface);
+}
+
+.cell[data-region="0"] { background: var(--region-0); }
+.cell[data-region="1"] { background: var(--region-1); }
+.cell[data-region="2"] { background: var(--region-2); }
+.cell[data-region="3"] { background: var(--region-3); }
+.cell[data-region="4"] { background: var(--region-4); }
+.cell[data-region="5"] { background: var(--region-5); }
+.cell[data-region="6"] { background: var(--region-6); }
+.cell[data-region="7"] { background: var(--region-7); }
+.cell[data-region="8"] { background: var(--region-8); }
+
+.status {
+  margin: 0;
   padding: 0.4rem 0.75rem;
   border-radius: 999px;
   background: var(--surface);
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 0.8rem;
+  font-size: 0.75rem;
   color: var(--text-dim);
+}
+
+.status[data-state="error"] {
+  background: color-mix(in srgb, var(--danger) 20%, var(--surface));
+  color: var(--danger);
 }

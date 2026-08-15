@@ -4,6 +4,25 @@
 
 An N×N grid (LinkedIn uses 7–10 depending on difficulty) is divided into N colored regions. The player places one crown/queen per row, per column, and per color region, with the added constraint that no two crowns may touch — including diagonally. A valid puzzle has exactly one solution reachable by pure logic (no guessing required), which is what makes generation the hardest part of this project, not the UI.
 
+## Board size range: 6×6 to 9×9
+
+**The shipping range is 6×6 (Easy) up to 9×9 (Impossible). 9×9 is a hard ceiling, and the constraint that sets it is the touch target, not the puzzle logic.**
+
+The S25 Ultra is about 412 CSS px wide in portrait. Against the ~44px minimum tap target (Phase 2), that gives:
+
+| Board | Cell size at 412px wide | Verdict |
+| --- | --- | --- |
+| 8×8 | ~51px | comfortable |
+| 9×9 | ~45px | just clears 44px — requires a near-edge-to-edge board |
+| 10×10 | ~41px | **below the minimum — does not fit the primary device** |
+
+So 10×10 is out on the primary platform, and 9×9 only works if the board runs nearly edge-to-edge on mobile rather than sitting inside generous page padding. That's a layout constraint to honour from Phase 1, not a Phase 8 adjustment.
+
+Two knock-on effects worth knowing up front:
+
+- **The palette has to stretch to 9.** The standard colorblind-safe categorical palette (Okabe-Ito) offers 8 usable colors; 9 distinguishable regions exceeds it. This promotes Phase 9's "color-blind-friendly patterns" from a nice-to-have to something the largest boards genuinely need. Defining all 9 colors in Phase 1 and keeping a `data-region` attribute on every cell means Phase 9 can attach patterns purely in CSS, with no markup change.
+- **Size is a *secondary* difficulty lever.** Per the technique-tier section below, difficulty comes from how deep the deduction runs, not from N. A small grid can be brutal and a large one trivial. Size rides along with the tier rating; it never substitutes for it.
+
 ## Tech stack: is p5.js the right call?
 
 Short answer: it'll work, but it's not the best fit, and I'd lead with something else.
@@ -45,6 +64,14 @@ Create the repo, a bare `index.html` + `style.css` + `main.js`, and push it live
 **Phase 1 — Static board rendering (mobile-first)**
 Hardcode a single small puzzle (say 5×5) as a 2D array of region IDs. Render it as a CSS grid of cells, each colored by its region, sized with relative units (`vmin`/`%`, not fixed pixels) so the whole board scales to fit a phone screen in portrait orientation without scrolling. Set the `viewport` meta tag (`width=device-width, initial-scale=1`) from this phase, not later — retrofitting it after other CSS is written is more painful than starting with it. No interactivity yet — just get the visual grid right, including a border style that makes region boundaries clearly readable (this is the #1 usability detail in the real game).
 
+**5×5 is a scaffolding size, not a shipping size.** It's chosen here only because it's small enough to eyeball the render and hand-solve while testing; the real range is 6×6–9×9 (see "Board size range" below). The practical consequence for this phase is that **nothing may hardcode 5** — the render loop, the CSS grid template, the palette lookup, and the sizing math all read N off the puzzle data. Get that right here and Phase 4 dropping in a 9×9 is a data change, not a code change. Likewise the palette should define all 9 region colors now, even though only 5 are used, so larger boards don't force a palette redesign later.
+
+The hardcoded puzzle must be a *genuine* puzzle with a unique solution, not a decorative arrangement of colors — Phase 3's test checklist solves it to verify win detection, so an unsolvable or multi-solution board leaves Phase 3 with nothing to validate against.
+
+*Sub-phases (one commit each):*
+- **Phase 1.1 — Puzzle data shape, grid render, palette.** The N-driven scaffolding: puzzle object shaped to anticipate the Phase 4 JSON schema, cells rendered into a CSS grid with `data-row`/`data-col`/`data-region` (which is also what lets Phase 2 use event delegation instead of N² listeners), region colors applied, board sized responsively and kept square. Cell separation is a plain uniform hairline at this point.
+- **Phase 1.2 — Region-boundary borders and responsive hardening.** Replace the uniform grid lines with thick borders drawn *only* on edges where a cell's neighbour belongs to a different region, plus the outer frame. This is where the fiddly bugs live — the classic one being adjacent cells each drawing their own edge, giving doubled thickness on some boundaries and single on others — so it's worth isolating in its own diff. Followed by the zoom/orientation/overflow hardening pass.
+
 *Test before moving on:*
 - Resize the desktop browser window through several widths and confirm the grid stays square and legible.
 - View on the S25 Ultra in both portrait and landscape — the board should fit without horizontal scrolling or overflow.
@@ -52,7 +79,7 @@ Hardcode a single small puzzle (say 5×5) as a 2D array of region IDs. Render it
 - Check the region colors are visually distinguishable from each other at a glance.
 
 **Phase 2 — Tap/click/pen interaction & cell states**
-Add per-cell state: empty → dot (marks "not here") → crown → empty, cycling on input (this matches LinkedIn's actual interaction model — a first tap marks an X/dot as a note-to-self, a second tap promotes it to a crown). Build this on Pointer Events (`pointerdown`/`pointerup`) rather than separate mouse, touch, and pen handlers, so mouse, finger, and S Pen all drive the exact same code path. Set `touch-action: manipulation` on cells so mobile browsers don't interpret quick repeated taps as a double-tap-to-zoom gesture. Make each tap target at least ~44×44px (Apple/Google's minimum recommended touch target) even on the smallest supported board size. Wire up rendering so state changes are reflected immediately. No rule-checking yet, so any configuration is currently "allowed."
+Add per-cell state: empty → dot (marks "not here") → crown → empty, cycling on input (this matches LinkedIn's actual interaction model — a first tap marks an X/dot as a note-to-self, a second tap promotes it to a crown). Build this on Pointer Events (`pointerdown`/`pointerup`) rather than separate mouse, touch, and pen handlers, so mouse, finger, and S Pen all drive the exact same code path. Set `touch-action: manipulation` on cells so mobile browsers don't interpret quick repeated taps as a double-tap-to-zoom gesture. Make each tap target at least ~44×44px (Apple/Google's minimum recommended touch target). Note that the binding case is the *largest* board on the *narrowest* screen, not the smallest board — a 9×9 on a 412px-wide phone leaves only ~45px per cell, so verify the tap target at 9×9 specifically rather than at the 5×5 scaffolding size, where it will pass trivially and tell you nothing. Wire up rendering so state changes are reflected immediately. No rule-checking yet, so any configuration is currently "allowed."
 
 *Test before moving on:*
 - Desktop with a mouse: click through empty → dot → crown → empty on every cell, including edges and corners.
@@ -94,7 +121,7 @@ Build a second solver alongside the brute-force one used for uniqueness-checking
 
 Practically: generate a batch of candidate puzzles, run each through the tiered solver, bucket by the highest tier reached, and keep a handful in reserve for each of the four difficulty levels. A secondary, optional signal worth logging once you have real players: actual solve time and mistake count per puzzle, which lets you sanity-check the tier labels against how people actually experience them and re-bucket anything that's mislabeled.
 
-Grid size is still worth varying as a coarse secondary lever (e.g., Easy at 6×6 up to Impossible at 9×9 or 10×10), but it should ride along with the technique-tier rating rather than substitute for it.
+Grid size is still worth varying as a coarse secondary lever — Easy at 6×6 up to Impossible at 9×9, per the "Board size range" section above (10×10 is ruled out by touch-target width on the primary device) — but it should ride along with the technique-tier rating rather than substitute for it.
 
 *Test before moving on:*
 - Generate a batch (20–50) of puzzles and confirm the uniqueness check actually discards puzzles with zero or multiple solutions rather than silently accepting them.
@@ -119,7 +146,7 @@ Concretely, this phase adds:
   - `clone() -> QueensEnv` — the one method plain Gym envs don't usually need but MCTS absolutely does, since search explores many hypothetical rollouts without mutating the real game state.
   - `encode() -> np.ndarray` — the board as a fixed-shape tensor for the network (e.g. one channel per region ID, one for placed crowns, one for dot/marked cells).
   - `render()` — an ASCII dump for debugging a training run from the terminal.
-- A design decision to make early: puzzle size varies by difficulty (6×6 up to 9×9/10×10 per the Phase 5 tiers), but a neural net wants a fixed input shape. The low-effort standard answer is to pad every board up to the largest size and add a mask channel marking real vs. padding cells, so one network can train across all difficulties instead of needing one per size.
+- A design decision to make early: puzzle size varies by difficulty (6×6 up to 9×9 per the Phase 5 tiers), but a neural net wants a fixed input shape. The low-effort standard answer is to pad every board up to the largest size — 9×9, per the "Board size range" section — and add a mask channel marking real vs. padding cells, so one network can train across all difficulties instead of needing one per size.
 
 Documentation for this layer should be written alongside the code, not bolted on afterward:
 - Docstrings on every public method in `env.py` stating the observation shape, the action space, and reward semantics — this is what actually gets read when you come back to this months later.
