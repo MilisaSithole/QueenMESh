@@ -9,12 +9,7 @@
 // scaffolding size — the shipping range is 6x6 to 9x9 — so no dimension, loop
 // bound, or palette entry may assume 5.
 
-const BUILD_MARKER = 'build 012';
-
-// Raised only if a board is ever authored larger than the palette can colour.
-// The 9-colour ceiling is a real constraint, not an arbitrary one: see the
-// "Board size range" section of the implementation plan.
-const MAX_BOARD_SIZE = 9;
+const BUILD_MARKER = 'build 013';
 
 // EMPTY / MARK / CROWN come from rules.js, which owns the shared model. The
 // names below are presentation only.
@@ -329,40 +324,14 @@ function selectPuzzle(puzzles, search) {
   };
 }
 
-/**
- * Cheap structural checks on puzzle data. Phase 4 owns proper loud-failure
- * validation of authored puzzle files; this is just enough to make a
- * malformed board obvious now instead of rendering as silent visual nonsense.
- */
-function describeProblem(puzzle) {
-  if (!puzzle) return 'no puzzle to load';
-
-  const { size, regions } = puzzle;
-  if (!Number.isInteger(size) || size < 2) return `bad size: ${size}`;
-  if (size > MAX_BOARD_SIZE) return `size ${size} exceeds the ${MAX_BOARD_SIZE} colour palette`;
-  if (!Array.isArray(regions) || regions.length !== size) {
-    return `expected ${size} region rows, got ${regions?.length}`;
-  }
-
-  for (let row = 0; row < size; row++) {
-    if (!Array.isArray(regions[row]) || regions[row].length !== size) {
-      return `row ${row} has ${regions[row]?.length} cells, expected ${size}`;
-    }
-    for (const id of regions[row]) {
-      if (!Number.isInteger(id) || id < 0 || id >= size) {
-        return `row ${row} has out-of-range region id ${id}`;
-      }
-    }
-  }
-
-  return null;
-}
-
 const boardEl = document.getElementById('board');
 const statusEl = document.getElementById('status');
 
+// The set is checked before anything is selected from it: with a duplicate id,
+// which board you get is undefined, so reporting the ambiguity beats loading
+// an arbitrary one.
 const { puzzle, notice } = selectPuzzle(PUZZLES, location.search);
-const problem = describeProblem(puzzle);
+const problem = describePuzzleSetProblem(PUZZLES) || describePuzzleProblem(puzzle);
 
 if (problem) {
   statusEl.textContent = `Puzzle failed to load — ${problem}`;

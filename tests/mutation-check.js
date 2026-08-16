@@ -75,8 +75,6 @@ const mutations = [
     (s) => s.replace("if (notice) statusEl.dataset.state = 'warning';", '')],
 
   // Phase 2.2 — rendering integrity
-  ['main.js', 'validation is skipped, so malformed puzzles render as nonsense',
-    (s) => s.replace(/^function describeProblem\(puzzle\) \{/m, 'function describeProblem(puzzle) {\n  return null;')],
   ['main.js', 'data-region is written from the wrong cell',
     (s) => s.replace('cell.dataset.region = regions[row][col];', 'cell.dataset.region = regions[col][row];')],
   ['main.js', 'the glyph <use> target is never updated',
@@ -181,6 +179,36 @@ const mutations = [
   ['style.css', 'a region rule reverts to the background shorthand, erasing the wash',
     (s) => s.replace('.cell[data-region="0"] { background-color: var(--region-0); }',
       '.cell[data-region="0"] { background: var(--region-0); }')],
+
+  // Phase 4.1 — schema and validation
+  ['puzzles.js', 'validation is skipped entirely',
+    (s) => s.replace('function describePuzzleProblem(puzzle) {',
+      'function describePuzzleProblem(puzzle) {\n  return null;')],
+  ['puzzles.js', 'the id is no longer checked',
+    (s) => s.replace(/if \(typeof id !== 'string' \|\| !id\.trim\(\)\) \{[\s\S]*?\n  \}/, '')],
+  ['puzzles.js', 'the board-size bounds stop being enforced',
+    (s) => s.replace(/if \(!Number\.isInteger\(size\) \|\| size < MIN_BOARD_SIZE[\s\S]*?\n  \}/, '')],
+  ['puzzles.js', 'unused region ids are allowed through',
+    (s) => s.replace(/if \(used\.size !== size\) \{[\s\S]*?\n  \}/, '')],
+  ['puzzles.js', 'the solution shape is no longer checked',
+    (s) => s.replace('if (solution !== undefined) {', 'if (false) {')],
+  ['puzzles.js', 'row length is no longer checked',
+    (s) => s.replace('if (!Array.isArray(cells) || cells.length !== size) {',
+      'if (!Array.isArray(cells)) {')],
+  ['puzzles.js', 'region ids may fall outside the palette',
+    (s) => s.replace('if (!Number.isInteger(region) || region < 0 || region >= size) {',
+      'if (false) {')],
+  ['puzzles.js', 'duplicate puzzle ids are allowed',
+    (s) => s.replace("if (typeof id === 'string' && seen.has(id)) return `duplicate puzzle id \"${id}\"`;", '')],
+  ['puzzles.js', 'an empty puzzle set is allowed',
+    (s) => s.replace("if (!Array.isArray(puzzles) || puzzles.length === 0) return 'no puzzles are defined';", '')],
+  ['puzzles.js', 'a shipped puzzle loses its declared solution',
+    (s) => s.replace('solution: [2, 0, 3, 1, 4],', '')],
+  ['main.js', 'the set-level check is never run',
+    (s) => s.replace('describePuzzleSetProblem(PUZZLES) || describePuzzleProblem(puzzle)',
+      'describePuzzleProblem(puzzle)')],
+  ['main.js', 'a failed puzzle renders anyway',
+    (s) => s.replace('if (problem) {', 'if (false) {')],
 ];
 
 const restore = () => {

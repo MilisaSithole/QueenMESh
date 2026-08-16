@@ -90,11 +90,13 @@ class Fragment extends Element {
  * return handles for driving the resulting board.
  *
  * @param {object} [options]
- * @param {object} [options.puzzle]  substitute a synthetic board, for sizes the
- *                                   shipped puzzle set does not cover
- * @param {string} [options.search]  query string, e.g. '?puzzle=dev-9x9'
+ * @param {object} [options.puzzle]   substitute a single synthetic board, for
+ *                                    sizes the shipped puzzle set does not cover
+ * @param {object[]} [options.puzzles] substitute the whole set, for testing
+ *                                    set-level problems like duplicate ids
+ * @param {string} [options.search]   query string, e.g. '?puzzle=dev-9x9'
  */
-function loadApp({ puzzle, search = '' } = {}) {
+function loadApp({ puzzle, puzzles, search = '' } = {}) {
   const board = new Element('div');
   board.className = 'board';
   const status = new Element('p');
@@ -129,9 +131,16 @@ function loadApp({ puzzle, search = '' } = {}) {
     .map((m) => m[1]);
   if (!scripts.length) throw new Error('no <script src> tags found in index.html');
 
-  const sources = scripts.map((src) =>
-    src === 'puzzles.js' && puzzle ? `const PUZZLES = ${JSON.stringify([puzzle])};` : read(src)
-  );
+  // A synthetic board replaces the *data* only, injected straight after
+  // puzzles.js. Substituting the whole file would also drop the schema
+  // validator that lives beside it, so tests would exercise a version of the
+  // app with its validation removed — the opposite of what they are for.
+  const replacement = puzzles ?? (puzzle ? [puzzle] : null);
+  const sources = scripts.flatMap((src) => {
+    const source = read(src);
+    if (src !== 'puzzles.js' || !replacement) return [source];
+    return [source, `PUZZLES.length = 0; PUZZLES.push(...${JSON.stringify(replacement)});`];
+  });
 
   // Hand the rule functions back out so tests can exercise them directly,
   // without a board in the way.

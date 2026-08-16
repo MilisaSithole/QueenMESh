@@ -113,6 +113,42 @@ function lab(hex) {
  *  plainly different colour. */
 const deltaE = (a, b) => Math.hypot(...lab(a).map((v, i) => v - lab(b)[i]));
 
+// The runtime validator only rejects what stops a board being rendered and
+// played. These are the schema obligations it deliberately leaves alone,
+// because they are either unnecessary at load or too expensive to check there.
+suite('puzzles — the schema contract on shipped data');
+
+test('the set has no duplicate ids', () => {
+  const seen = new Set();
+  const duplicates = PUZZLES.map((p) => p.id).filter((id) => seen.size === seen.add(id).size);
+  eq(duplicates, []);
+});
+
+for (const puzzle of PUZZLES) {
+  test(`${puzzle.id}: declares every field the schema requires`, () => {
+    const missing = ['id', 'size', 'difficulty', 'regions', 'solution']
+      .filter((field) => puzzle[field] === undefined);
+    eq(missing, []);
+  });
+
+  // Not enforced at load: a board is playable without one, so making it fatal
+  // would reject valid boards to guard a field nothing on the page reads.
+  // Shipped puzzles still owe us one, for tooling and for Phase 6's hints.
+  test(`${puzzle.id}: declares a solution of the right shape`, () => {
+    ok(Array.isArray(puzzle.solution), 'solution must be an array');
+    eq(puzzle.solution.length, puzzle.size, 'one column per row');
+    const outOfRange = puzzle.solution.filter(
+      (col) => !Number.isInteger(col) || col < 0 || col >= puzzle.size
+    );
+    eq(outOfRange, []);
+  });
+
+  test(`${puzzle.id}: size is within the supported range`, () => {
+    ok(puzzle.size >= 4, `${puzzle.size} is below the smallest solvable board`);
+    ok(puzzle.size <= 9, `${puzzle.size} exceeds the nine-colour palette`);
+  });
+}
+
 suite('puzzles — structure');
 
 for (const puzzle of PUZZLES) {

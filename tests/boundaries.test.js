@@ -10,12 +10,25 @@ const { loadApp } = require('./dom-shim');
 const HALF = 2;   // half a boundary, in raster units
 const UNIT = 16;  // cell size, in raster units
 
+/**
+ * A random region grid that still satisfies the schema — every region id must
+ * appear at least once, or the board is unsolvable and the loader rejects it
+ * before these tests get a board to inspect. Each id is seeded on the diagonal
+ * first, then the remaining cells are filled at random.
+ */
 function randomGrid(size, seed) {
   let s = seed;
   const rand = () => (s = (s * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
-  return Array.from({ length: size }, () =>
-    Array.from({ length: size }, () => Math.floor(rand() * size))
+
+  const grid = Array.from({ length: size }, (_, r) =>
+    Array.from({ length: size }, (_, c) => (r === c ? r : -1))
   );
+  for (let r = 0; r < size; r++) {
+    for (let c = 0; c < size; c++) {
+      if (grid[r][c] === -1) grid[r][c] = Math.floor(rand() * size);
+    }
+  }
+  return grid;
 }
 
 function syntheticPuzzle(size, seed) {
