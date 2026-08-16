@@ -28,8 +28,8 @@ const TIER_NAMES = {
   4: 'impossible',
 };
 
-/** Highest tier with rules implemented so far. Raised in Phase 5.2. */
-const IMPLEMENTED_UP_TO = 1;
+/** Highest tier with rules of its own. Tier 4 is a stall, so it needs none. */
+const IMPLEMENTED_UP_TO = 3;
 
 // ---------------------------------------------------------------------------
 // Candidate model
@@ -128,7 +128,7 @@ function forcedInGroup(state, cells, describe) {
   if (options.length > 1) return null;
 
   const [row, col] = options[0];
-  return { row, col, reason: `${describe} has only one legal cell left` };
+  return { kind: 'place', row, col, reason: `${describe} has only one legal cell left` };
 }
 
 function onlyCellInRow(state) {
@@ -155,8 +155,163 @@ function onlyCellInRegion(state) {
   return null;
 }
 
+// ---------------------------------------------------------------------------
+// Locked sets — Tiers 2 and 3
+//
+// Every row, every column and every region holds exactly one crown. So if the
+// candidates of k groups are confined to exactly k lines of some other kind,
+// those k lines are spoken for, and nobody else may use them.
+//
+// k = 1 is the familiar pointing case: a region whose candidates all sit in one
+// row means that row's crown belongs to that region, so the rest of the row
+// goes. k >= 2 is the genuinely multi-region case: two regions between them
+// confined to two rows consume both rows, even though neither region alone
+// pins either row.
+//
+// Worth stating because the plan gets it wrong: a *single* region confined to
+// *two* rows rules out nothing at all. Its crown takes one of the two and
+// leaves the other free for anyone. The rule needs k groups over k lines, not
+// one group over several.
+// ---------------------------------------------------------------------------
+
+const AXES = {
+  row: { label: 'row', of: ([row]) => row },
+  column: { label: 'column', of: ([, col]) => col },
+  region: { label: 'region', of: ([row, col], state) => state.regions[row][col] },
+};
+
+/**
+ * Groups of one kind, as {id, cells}.
+ *
+ * No need to filter out groups that already hold a crown: placing one clears
+ * every candidate in its row, column and region, so a satisfied group has an
+ * empty candidate set, and callers skip empty ones anyway. A separate crown
+ * check here would be a second way of saying the same thing, and the kind of
+ * redundancy that quietly rots when only one of the two is maintained.
+ */
+function openGroups(state, axis) {
+  const buckets = new Map();
+  for (let row = 0; row < state.size; row++) {
+    for (let col = 0; col < state.size; col++) {
+      const id = AXES[axis].of([row, col], state);
+      if (!buckets.has(id)) buckets.set(id, []);
+      buckets.get(id).push([row, col]);
+    }
+  }
+  return [...buckets.entries()].map(([id, cells]) => ({ id, cells }));
+}
+
+function* combinations(items, k) {
+  if (k === 0) { yield []; return; }
+  for (let i = 0; i <= items.length - k; i++) {
+    for (const rest of combinations(items.slice(i + 1), k - 1)) {
+      yield [items[i], ...rest];
+    }
+  }
+}
+
+/**
+ * Find k groups on `axis` whose candidates span exactly k lines of `lineAxis`,
+ * and eliminate everyone else from those lines.
+ */
+function lockedSets(state, axis, lineAxis, k) {
+  const groups = openGroups(state, axis).filter((g) => candidatesIn(state, g.cells).length > 0);
+  if (groups.length < k) return null;
+
+  for (const chosen of combinations(groups, k)) {
+    const lines = new Set();
+    const owned = new Set();
+
+    for (const group of chosen) {
+      for (const cell of candidatesIn(state, group.cells)) {
+        lines.add(AXES[lineAxis].of(cell, state));
+        owned.add(cell.join(','));
+      }
+    }
+    if (lines.size !== k) continue;
+
+    const doomed = [];
+    for (let row = 0; row < state.size; row++) {
+      for (let col = 0; col < state.size; col++) {
+        if (!state.candidate[row][col]) continue;
+        if (!lines.has(AXES[lineAxis].of([row, col], state))) continue;
+        if (owned.has(`${row},${col}`)) continue;
+        doomed.push([row, col]);
+      }
+    }
+    if (!doomed.length) continue;
+
+    const names = chosen.map((g) => `${AXES[axis].label} ${g.id}`).join(' and ');
+    const lineNames = [...lines].sort((a, b) => a - b).join(', ');
+    return {
+      kind: 'eliminate',
+      cells: doomed,
+      reason: `${names} must take ${AXES[lineAxis].label} ${lineNames}, so nothing else can`,
+    };
+  }
+  return null;
+}
+
+/** Every ordered pair of different axes — six directions in total. */
+const AXIS_PAIRS = [
+  ['region', 'row'], ['region', 'column'],
+  ['row', 'region'], ['column', 'region'],
+  ['row', 'column'], ['column', 'row'],
+];
+
+const lockedSetRule = (k) => (state) => {
+  for (const [axis, lineAxis] of AXIS_PAIRS) {
+    const found = lockedSets(state, axis, lineAxis, k);
+    if (found) return found;
+  }
+  return null;
+};
+
+/**
+ * A cell that would starve some group if a crown were placed on it.
+ *
+ * If every remaining candidate of a row, column or region touches cell X, then
+ * putting a crown on X would leave that group nowhere legal to go. So X is out.
+ * Reads as a one-step contradiction, but it needs no trial: it is a direct
+ * observation about a neighbourhood, which is why it sits with Tier 2 rather
+ * than with the branching search of Tier 4.
+ */
+function starvesAGroup(state) {
+  // Strictly adjacent: a cell is NOT its own neighbour. Without that exclusion
+  // the rule fires whenever a group's candidates are the cell plus its
+  // neighbours, and eliminates the one cell that could legitimately have been
+  // that group's crown — quietly unsound, and it takes several more deductions
+  // before the damage surfaces as a bogus contradiction somewhere else.
+  const touches = (a, b) =>
+    !(a[0] === b[0] && a[1] === b[1]) &&
+    Math.abs(a[0] - b[0]) <= 1 &&
+    Math.abs(a[1] - b[1]) <= 1;
+
+  for (const axis of ['row', 'column', 'region']) {
+    for (const group of openGroups(state, axis)) {
+      const options = candidatesIn(state, group.cells);
+      if (!options.length) continue;
+
+      for (let row = 0; row < state.size; row++) {
+        for (let col = 0; col < state.size; col++) {
+          if (!state.candidate[row][col]) continue;
+          if (!options.every((cell) => touches(cell, [row, col]))) continue;
+          return {
+            kind: 'eliminate',
+            cells: [[row, col]],
+            reason: `a crown at (${row},${col}) would leave ${AXES[axis].label} ${group.id} nowhere to go`,
+          };
+        }
+      }
+    }
+  }
+  return null;
+}
+
 const TIERS = [
   { level: 1, rules: [onlyCellInRow, onlyCellInColumn, onlyCellInRegion] },
+  { level: 2, rules: [lockedSetRule(1), starvesAGroup] },
+  { level: 3, rules: [lockedSetRule(2), lockedSetRule(3)] },
 ];
 
 // ---------------------------------------------------------------------------
@@ -204,9 +359,21 @@ function solve(puzzle, { maxTier = IMPLEMENTED_UP_TO, given = [] } = {}) {
 
     if (state.contradiction || !deduction) break;
 
-    place(state, deduction.row, deduction.col);
+    if (deduction.kind === 'place') {
+      place(state, deduction.row, deduction.col);
+      log.push({
+        tier: tierUsed, kind: 'place',
+        row: deduction.row, col: deduction.col, reason: deduction.reason,
+      });
+    } else {
+      // A rule that "eliminates" nothing already ruled out would spin forever,
+      // so only genuine removals count as progress.
+      const removed = deduction.cells.filter(([r, c]) => eliminate(state, r, c));
+      if (!removed.length) break;
+      log.push({ tier: tierUsed, kind: 'eliminate', cells: removed, reason: deduction.reason });
+    }
+
     highestTier = Math.max(highestTier, tierUsed);
-    log.push({ tier: tierUsed, row: deduction.row, col: deduction.col, reason: deduction.reason });
   }
 
   return {
@@ -221,21 +388,66 @@ function solve(puzzle, { maxTier = IMPLEMENTED_UP_TO, given = [] } = {}) {
 }
 
 /**
+ * Count crown arrangements satisfying every rule. Brute force, deliberately —
+ * this is the check the tiered solver is *not*, and Tier 4 is defined against
+ * it.
+ */
+function countSolutions(puzzle, stopAt = Infinity) {
+  const { size, regions } = puzzle;
+  let found = 0;
+  const cols = [];
+  const usedCol = new Array(size).fill(false);
+  const usedRegion = new Set();
+
+  (function place(row) {
+    if (found >= stopAt) return;
+    if (row === size) { found++; return; }
+    for (let col = 0; col < size; col++) {
+      if (usedCol[col]) continue;
+      if (row > 0 && Math.abs(col - cols[row - 1]) < 2) continue;
+      const region = regions[row][col];
+      if (usedRegion.has(region)) continue;
+
+      usedCol[col] = true; usedRegion.add(region); cols.push(col);
+      place(row + 1);
+      cols.pop(); usedRegion.delete(region); usedCol[col] = false;
+    }
+  })(0);
+
+  return found;
+}
+
+/**
  * Rate a puzzle by the highest tier its solve path required.
  *
- * `tier` is null when the ladder stalls. That is not yet the same as Tier 4 —
- * with only Tier 1 implemented, a stall means "needs something above Tier 1",
- * which could be any of 2, 3 or 4. Reporting null rather than guessing 4 keeps
- * the difference visible until 5.2 fills the ladder in.
+ * A stall is Tier 4 — "only yields to trial and error" — but only once brute
+ * force confirms a unique solution actually exists. Without that check a
+ * broken board and a fiendish one are indistinguishable, and the broken one
+ * would be filed as merely hard. `tier` stays null in that case, because no
+ * difficulty is the honest answer for a puzzle that cannot be solved at all.
  */
 function rate(puzzle) {
   const result = solve(puzzle, { maxTier: IMPLEMENTED_UP_TO });
+
+  if (result.solved) {
+    return {
+      id: puzzle.id, size: puzzle.size, solved: true,
+      tier: result.highestTier, label: TIER_NAMES[result.highestTier],
+      placed: result.placed, contradiction: null, log: result.log,
+    };
+  }
+
+  const solutions = countSolutions(puzzle, 2);
+  const unique = solutions === 1;
+
   return {
     id: puzzle.id,
     size: puzzle.size,
-    solved: result.solved,
-    tier: result.solved ? result.highestTier : null,
-    label: result.solved ? TIER_NAMES[result.highestTier] : `beyond tier ${IMPLEMENTED_UP_TO}`,
+    solved: false,
+    tier: unique ? 4 : null,
+    label: unique
+      ? TIER_NAMES[4]
+      : `unratable — ${solutions === 0 ? 'no solution' : 'more than one solution'}`,
     placed: result.placed,
     contradiction: result.contradiction,
     log: result.log,
@@ -249,8 +461,8 @@ function rate(puzzle) {
  * whether a tier is doing any work at all — a rule that only ever fires when
  * handed the answer is not a rule.
  */
-function progressFrom(puzzle, given) {
-  const result = solve(puzzle, { maxTier: IMPLEMENTED_UP_TO, given });
+function progressFrom(puzzle, given, { maxTier = IMPLEMENTED_UP_TO } = {}) {
+  const result = solve(puzzle, { maxTier, given });
   return { ...result, deduced: result.placed - given.length };
 }
 
@@ -260,13 +472,16 @@ function loadPuzzles() {
 }
 
 module.exports = {
-  createState, place, eliminate, solve, rate, progressFrom,
+  createState, place, eliminate, solve, rate, progressFrom, countSolutions,
   TIERS, TIER_NAMES, IMPLEMENTED_UP_TO,
   // Exported individually so each can be tested in isolation. Run together
   // they cover for each other: disable the row rule and the region rule
   // quietly finishes the job, so a suite that only drives the whole ladder
   // cannot tell which rules are actually pulling their weight.
-  rules: { onlyCellInRow, onlyCellInColumn, onlyCellInRegion },
+  rules: {
+    onlyCellInRow, onlyCellInColumn, onlyCellInRegion,
+    lockedSets, lockedSetRule, starvesAGroup,
+  },
 };
 
 if (require.main === module) {
@@ -280,17 +495,17 @@ if (require.main === module) {
   }
 
   console.log(`tier ladder implemented up to ${IMPLEMENTED_UP_TO}\n`);
-  console.log('id               size  placed  rating           tier-1 bootstrap');
+  console.log('id               size  placed  rating       tier-1 alone needs');
   for (const puzzle of chosen) {
     const r = rate(puzzle);
 
-    // How many crowns Tier 1 has to be *handed* before it can finish the board
-    // on its own. A measure of how much of the solve the tier is not doing.
+    // How many crowns Tier 1 has to be *handed* before it can finish on its
+    // own. A measure of how much of the solve that tier is not doing.
     let bootstrap = 'never finishes';
     for (let given = 0; given <= puzzle.size; given++) {
       const seeded = puzzle.solution.slice(0, given).map((col, row) => [row, col]);
-      if (progressFrom(puzzle, seeded).solved) {
-        bootstrap = given === 0 ? 'none needed' : `${given} of ${puzzle.size} crowns`;
+      if (progressFrom(puzzle, seeded, { maxTier: 1 }).solved) {
+        bootstrap = given === 0 ? 'nothing' : `${given} of ${puzzle.size} crowns`;
         break;
       }
     }
@@ -299,7 +514,7 @@ if (require.main === module) {
       r.id.padEnd(17),
       String(r.size).padEnd(5),
       `${r.placed}/${r.size}`.padEnd(7),
-      r.label.padEnd(16),
+      r.label.padEnd(12),
       bootstrap + (r.contradiction ? `  (contradiction: ${r.contradiction})` : '')
     );
   }

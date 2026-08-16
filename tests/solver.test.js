@@ -16,7 +16,7 @@ const path = require('path');
 const { suite, test, note, eq, ok } = require('./harness');
 const { ROOT } = require('./dom-shim');
 const {
-  solve, rate, progressFrom, createState, place, eliminate, rules,
+  solve, rate, progressFrom, createState, place, eliminate, rules, countSolutions,
 } = require('../tools/solver');
 
 const PUZZLES = new Function(
@@ -124,7 +124,7 @@ test('Tier 1 needs most of the answer handed to it before it can finish', () => 
   const costs = PUZZLES.map((puzzle) => {
     const pairs = asPairs(puzzle.solution);
     for (let given = 0; given <= puzzle.size; given++) {
-      if (progressFrom(puzzle, pairs.slice(0, given)).solved) {
+      if (progressFrom(puzzle, pairs.slice(0, given), { maxTier: 1 }).solved) {
         return { id: puzzle.id, given, size: puzzle.size };
       }
     }
@@ -151,7 +151,7 @@ test('the row rule fires when a row is down to one cell', () => {
   for (const col of [0, 1, 3, 4]) eliminate(state, 0, col);
 
   eq(rules.onlyCellInRow(state), {
-    row: 0, col: 2, reason: 'row 0 has only one legal cell left',
+    kind: 'place', row: 0, col: 2, reason: 'row 0 has only one legal cell left',
   });
   eq(rules.onlyCellInColumn(state), null, 'no column should be forced by this');
   eq(rules.onlyCellInRegion(state), null, 'no region should be forced by this');
@@ -162,7 +162,7 @@ test('the column rule fires when a column is down to one cell', () => {
   for (const row of [0, 1, 3, 4]) eliminate(state, row, 0);
 
   eq(rules.onlyCellInColumn(state), {
-    row: 2, col: 0, reason: 'column 0 has only one legal cell left',
+    kind: 'place', row: 2, col: 0, reason: 'column 0 has only one legal cell left',
   });
   eq(rules.onlyCellInRow(state), null);
   eq(rules.onlyCellInRegion(state), null);
@@ -174,7 +174,7 @@ test('the region rule fires when a region is down to one cell', () => {
   for (const [row, col] of [[1, 3], [1, 4], [2, 3]]) eliminate(state, row, col);
 
   eq(rules.onlyCellInRegion(state), {
-    row: 3, col: 3, reason: 'region 2 has only one legal cell left',
+    kind: 'place', row: 3, col: 3, reason: 'region 2 has only one legal cell left',
   });
   eq(rules.onlyCellInRow(state), null);
   eq(rules.onlyCellInColumn(state), null);
@@ -189,6 +189,124 @@ test('no rule fires for a group that already holds its crown', () => {
   eq(state.contradiction, null, 'a satisfied group is not a contradiction');
 });
 
+suite('solver — Tier 2: locked lines and starved groups');
+
+const sortCells = (cells) => cells.map(([r, c]) => `${r},${c}`).sort();
+
+test('a region confined to one row claims that row', () => {
+  const state = createState(starter);
+  // Region 0 of the starter is (0,2) (0,3) (0,4) (1,1) (1,2). Drop its two
+  // row-1 cells and it can only be in row 0.
+  eliminate(state, 1, 1);
+  eliminate(state, 1, 2);
+
+  const found = rules.lockedSets(state, 'region', 'row', 1);
+  ok(found, 'the rule should fire');
+  eq(sortCells(found.cells), ['0,0', '0,1'], 'the rest of row 0 goes');
+  ok(/region 0 must take row 0/.test(found.reason), found.reason);
+});
+
+test('a region spread over two rows claims nothing on its own', () => {
+  // The unsound version of this rule — the one the plan describes — would fire
+  // here. One region across two rows leaves the other row free for anyone.
+  const state = createState(starter);
+  eq(rules.lockedSets(state, 'region', 'row', 1), null);
+});
+
+test('a row confined to one region claims that region', () => {
+  const state = createState(starter);
+  // Row 0 is regions 1,1,0,0,0. Remove the region-0 cells and row 0 lies
+  // entirely inside region 1.
+  for (const col of [2, 3, 4]) eliminate(state, 0, col);
+
+  const found = rules.lockedSets(state, 'row', 'region', 1);
+  ok(found, 'the rule should fire');
+  eq(sortCells(found.cells), ['1,0', '2,0'], 'region 1 loses its cells outside row 0');
+});
+
+test('a cell that would starve a group is eliminated', () => {
+  const state = createState(starter);
+  // Region 1 is (0,0) (0,1) (1,0) (2,0). Every one of those touches (1,1),
+  // so a crown at (1,1) would leave region 1 nowhere legal.
+  const found = rules.starvesAGroup(state);
+  ok(found, 'the rule should fire on the untouched starter board');
+  eq(found.cells.length, 1);
+  ok(/nowhere to go/.test(found.reason), found.reason);
+});
+
+test('a group is never starved by one of its own cells', () => {
+  // The unsound version treated a cell as adjacent to itself, so a group whose
+  // candidates were one cell plus its neighbours would eliminate that very
+  // cell — the one place its crown could legitimately go.
+  const state = createState(starter);
+  const found = rules.starvesAGroup(state);
+  const [row, col] = found.cells[0];
+  const regionOfVictim = starter.regions[row][col];
+
+  // Whichever group justified the elimination, the victim must not belong to
+  // a group whose entire candidate set it was part of.
+  ok(
+    !/region /.test(found.reason) || !found.reason.includes(`region ${regionOfVictim}`),
+    `a cell was eliminated to protect its own region: ${found.reason}`
+  );
+});
+
+suite('solver — Tier 3: multi-group locked sets');
+
+test('two regions confined to two rows claim both rows', () => {
+  const state = createState(starter);
+  // Squeeze regions 0 and 1 into rows 0 and 1 between them.
+  eliminate(state, 2, 0); // region 1's only row-2 cell
+
+  const found = rules.lockedSets(state, 'region', 'row', 2);
+  ok(found, 'two regions over two rows should claim them');
+  ok(found.cells.length > 0);
+  ok(/and/.test(found.reason), `reason should name both regions: ${found.reason}`);
+});
+
+test('k=2 does not fire when the two groups span three lines', () => {
+  const state = createState(starter);
+  // Untouched, regions 0 and 1 span rows 0,1,2 between them — three lines for
+  // two regions claims nothing.
+  const found = rules.lockedSets(state, 'region', 'row', 2);
+  if (found) {
+    ok(!/region 0 and region 1 must take row/.test(found.reason), found.reason);
+  }
+});
+
+suite('solver — the ladder actually uses every rung');
+
+// Testing the rules directly proves they work, not that they are wired in.
+// Drop a whole tier from TIERS and every direct rule test still passes.
+
+test('a real solve draws on Tier 1, Tier 2 and Tier 3', () => {
+  const solvable = PUZZLES.map(rate).find((r) => r.solved);
+  ok(solvable, 'no board is solvable by the ladder, so this cannot be checked');
+
+  const tiersUsed = new Set(solvable.log.map((step) => step.tier));
+  for (const tier of [1, 2, 3]) {
+    ok(tiersUsed.has(tier), `${solvable.id} never used tier ${tier}: saw ${[...tiersUsed]}`);
+  }
+});
+
+test('Tier 2 contributes both of its rules on real boards', () => {
+  const reasons = PUZZLES.flatMap((p) => rate(p).log)
+    .filter((step) => step.tier === 2)
+    .map((step) => step.reason);
+
+  ok(reasons.some((r) => /must take/.test(r)), 'no locked-set deduction fired anywhere');
+  ok(reasons.some((r) => /nowhere to go/.test(r)), 'no starvation deduction fired anywhere');
+});
+
+test('Tier 3 contributes multi-group deductions on real boards', () => {
+  const tierThree = PUZZLES.flatMap((p) => rate(p).log).filter((step) => step.tier === 3);
+  ok(tierThree.length > 0, 'Tier 3 never fires, so it cannot be justifying any rating');
+  ok(
+    tierThree.some((step) => / and /.test(step.reason)),
+    `Tier 3 should name several groups: ${tierThree.map((s) => s.reason)[0]}`
+  );
+});
+
 suite('solver — the harness itself');
 
 test('a group with no legal cell left is reported as a contradiction', () => {
@@ -200,15 +318,55 @@ test('a group with no legal cell left is reported as a contradiction', () => {
   ok(/row 1/.test(state.contradiction), state.contradiction);
 });
 
-test('an unsolved board is rated null, not zero', () => {
-  // Reporting a tier for a board the ladder never cracked would put it in the
-  // Easy bucket, which is the most damaging possible mislabel.
+suite('solver — Tier 4 and brute force');
+
+test('brute force finds exactly one solution for every shipped puzzle', () => {
+  // Also the guard on countSolutions itself: drop the region constraint or the
+  // adjacency constraint and these counts jump above one immediately.
   for (const puzzle of PUZZLES) {
-    const rating = rate(puzzle);
-    eq(rating.solved, false, `${puzzle.id} should not be solvable at tier 1`);
-    eq(rating.tier, null, `${puzzle.id} must have no tier, not tier ${rating.tier}`);
+    eq(countSolutions(puzzle), 1, `${puzzle.id}`);
   }
-  eq(rate(tierOneFixture).tier, 1, 'a board that does solve still gets its tier');
+  eq(countSolutions(tierOneFixture), 1, 'fixture');
+});
+
+test('brute force counts more than one when a board really has more', () => {
+  // Verified single-cell change: takes the starter from one solution to two.
+  const loosened = {
+    ...PUZZLES[0],
+    regions: PUZZLES[0].regions.map((row, r) => (r === 0 ? [1, 0, 0, 0, 0] : [...row])),
+  };
+  ok(countSolutions(loosened) > 1, 'expected the loosened board to admit several');
+});
+
+test('a stalled board with a unique solution is Tier 4, not unrated', () => {
+  const stalled = PUZZLES.map(rate).filter((r) => !r.solved);
+  ok(stalled.length > 0, 'expected at least one board the ladder cannot finish');
+  for (const rating of stalled) {
+    eq(rating.tier, 4, `${rating.id} stalled, so it should be impossible`);
+    eq(rating.label, 'impossible');
+  }
+});
+
+test('a board with several solutions is unratable, not merely impossible', () => {
+  // The distinction matters: "impossible" is a difficulty, and filing a broken
+  // board under it would ship it to a player as a fiendish puzzle.
+  const loosened = {
+    ...PUZZLES[0],
+    id: 'loosened',
+    regions: PUZZLES[0].regions.map((row, r) => (r === 0 ? [1, 0, 0, 0, 0] : [...row])),
+  };
+  const rating = rate(loosened);
+  eq(rating.tier, null);
+  ok(/unratable/.test(rating.label), rating.label);
+});
+
+test('a solved board reports the rung it actually needed', () => {
+  const solved = PUZZLES.map(rate).filter((r) => r.solved);
+  for (const rating of solved) {
+    ok(rating.tier >= 1 && rating.tier <= 3, `${rating.id} rated ${rating.tier}`);
+    eq(rating.label, ['', 'easy', 'medium', 'hard'][rating.tier]);
+  }
+  eq(rate(tierOneFixture).tier, 1, 'the Tier 1 fixture still rates easy');
 });
 
 test('given crowns are respected and not double-counted', () => {
