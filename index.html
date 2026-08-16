@@ -31,6 +31,9 @@
     <div class="board-area">
       <div class="board" id="board"></div>
     </div>
+    <!-- Sits below the board so it falls under the thumb on a phone, where
+         the top of the screen is the hardest place to reach one-handed. -->
+    <nav class="picker" id="picker" aria-label="Choose a puzzle"></nav>
     <p class="status" id="status">Loading…</p>
   </main>
   <!-- Order matters: rules.js defines the cell-state constants and the

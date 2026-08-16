@@ -100,7 +100,8 @@ function loadApp({ puzzle, puzzles, search = '' } = {}) {
   const board = new Element('div');
   board.className = 'board';
   const status = new Element('p');
-  const byId = { board, status };
+  const picker = new Element('nav');
+  const byId = { board, status, picker };
 
   global.document = {
     getElementById: (id) => byId[id],
@@ -167,9 +168,21 @@ function loadApp({ puzzle, puzzles, search = '' } = {}) {
   const api = {
     board,
     status,
+    picker,
     rules,
     cellAt,
     stateOf,
+
+    /** Labels shown on the picker, in order. */
+    pickerLabels: () => picker.children.map((b) => b.textContent),
+    /** Puzzle id of the button currently marked active. */
+    activePuzzleId: () => picker.children.find((b) => b.dataset.active === 'true')?.dataset.puzzleId,
+    /** Click a picker button by puzzle id, as a player would. */
+    choose(id) {
+      const button = picker.children.find((b) => b.dataset.puzzleId === id);
+      if (!button) throw new Error(`no picker button for "${id}"`);
+      button.dispatch('click', {});
+    },
     /** True when the cell holds a crown that is actually clashing. */
     violatingAt: (row, col) => cellAt(row, col).dataset.violation === 'cell',
     /** Clashing crowns, as sorted "row,col" keys, for stable comparison. */
@@ -191,7 +204,13 @@ function loadApp({ puzzle, puzzles, search = '' } = {}) {
         .map((c) => `${c.dataset.row},${c.dataset.col}`)
         .sort(),
     solved: () => board.dataset.solved === 'true',
-    size: board.children.length ? Math.max(...board.children.map((c) => Number(c.dataset.row))) + 1 : 0,
+
+    // A getter, not a value: switching puzzles rebuilds the board, and a size
+    // captured at load would quietly describe the previous one.
+    get size() {
+      if (!board.children.length) return 0;
+      return Math.max(...board.children.map((c) => Number(c.dataset.row))) + 1;
+    },
 
     /** Start a new gesture and return its pointer id. */
     down: (row, col, id = nextPointerId++) => { send('pointerdown', row, col, id); return id; },

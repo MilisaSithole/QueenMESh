@@ -381,6 +381,34 @@ suite('css — traps already hit once');
     ok(/\.cell\s*{[^}]*--violation-ring:\s*0px/s.test(css), 'default must be 0px, and carry a unit');
   });
 
+  // The picker is the first control outside the board, so it does not inherit
+  // any of the board's tap-target work by default.
+  test('picker options meet the 44px tap target', () => {
+    const declared = css.match(/\.picker-option\s*{[^}]*min-height:\s*(\d+)px/);
+    ok(declared, 'no min-height found on .picker-option');
+    ok(Number(declared[1]) >= 44, `picker options are ${declared[1]}px, below the 44px minimum`);
+  });
+
+  test('the selected picker option is visibly distinguished', () => {
+    const rule = css.match(/\.picker-option\[data-active\]\s*{([^}]*)}/);
+    ok(rule, 'no rule for the active option');
+    // Not colour alone: the selection has to survive greyscale and the Phase
+    // 6.5 region-pattern mode, so weight or fill must carry it too.
+    ok(
+      /background-color:/.test(rule[1]) && /font-weight:/.test(rule[1]),
+      `active option needs more than a colour change: ${rule[1].trim()}`
+    );
+  });
+
+  test('the picker does not depend on hover to convey anything', () => {
+    // Hover rules are fine as enhancement, but must sit behind a hover query
+    // so a finger-only device is never the odd one out.
+    const hoverRules = [...css.matchAll(/\.picker-option:hover/g)];
+    if (!hoverRules.length) return;
+    const guarded = /@media \(hover: hover\)\s*{[^}]*\.picker-option:hover/s.test(css);
+    ok(guarded, 'picker hover styling must sit inside a (hover: hover) query');
+  });
+
   test('a solved board is styled', () => {
     ok(/\.board\[data-solved\]/.test(css), 'board');
     ok(/\.status\[data-state="solved"\]/.test(css), 'status');

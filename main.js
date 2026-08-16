@@ -9,7 +9,7 @@
 // scaffolding size — the shipping range is 6x6 to 9x9 — so no dimension, loop
 // bound, or palette entry may assume 5.
 
-const BUILD_MARKER = 'build 014';
+const BUILD_MARKER = 'build 015';
 
 // EMPTY / MARK / CROWN come from rules.js, which owns the shared model. The
 // names below are presentation only.
@@ -27,8 +27,16 @@ const STATE_GLYPHS = [null, '#glyph-mark', '#glyph-crown'];
  * Live game state. Rebuilt by startPuzzle(); never shared with puzzle data,
  * which is immutable and outlives any individual attempt.
  */
+let puzzle = null;
 let cellStates = [];
 let cellElements = [];
+
+/**
+ * Set when the URL asked for a puzzle that does not exist. Cleared the moment
+ * the player picks a board themselves, since a complaint about the address bar
+ * stops being useful once they have moved on from it.
+ */
+let notice = null;
 
 /**
  * Build the cell grid for a puzzle and mount it into the board container.
@@ -326,25 +334,92 @@ function selectPuzzle(puzzles, search) {
 
 const boardEl = document.getElementById('board');
 const statusEl = document.getElementById('status');
+const pickerEl = document.getElementById('picker');
+
+/**
+ * Switch to a puzzle, from scratch.
+ *
+ * The only way a board ever begins — first load and every later switch take
+ * this same path. Two states are easy to leave behind when switching (the
+ * violation flags and the solved marker live on elements rather than in
+ * `cellStates`), and the surest way not to forget them is to have no second
+ * code path that could.
+ *
+ * Cell state is rebuilt rather than cleared, and the board re-rendered rather
+ * than reused, because the new puzzle may be a different size.
+ */
+function startPuzzle(next) {
+  puzzle = next;
+
+  cellStates = Array.from({ length: puzzle.size }, () => new Array(puzzle.size).fill(EMPTY));
+  cellElements = renderBoard(boardEl, puzzle);
+
+  // renderBoard replaces the board's children, not the board itself, so the
+  // delegated pointer listeners attached at startup survive a switch.
+  refreshRuleState();
+  markActivePuzzle();
+}
+
+/**
+ * Build the picker once. Real <button> elements rather than styled divs: they
+ * come with keyboard activation, focus handling and the right role for free,
+ * which is most of what Phase 9's accessibility pass would otherwise have to
+ * retrofit.
+ *
+ * Labelled by size rather than difficulty. Size is a fact; the difficulty
+ * labels are provisional guesses that Phase 5 will revise, and putting a guess
+ * on the button makes it look measured.
+ */
+function buildPicker(puzzles) {
+  const buttons = puzzles.map((entry) => {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'picker-option';
+    button.dataset.puzzleId = entry.id;
+    button.textContent = `${entry.size}×${entry.size}`;
+    // The size alone is terse; the difficulty belongs somewhere a screen
+    // reader and a long-press tooltip can both reach.
+    button.title = `${entry.id} — ${entry.difficulty}`;
+    button.setAttribute('aria-label', `${entry.size} by ${entry.size}, ${entry.difficulty}`);
+
+    // `click` rather than pointer events, deliberately. The board needed raw
+    // pointer handling because it distinguishes taps from drags; a button does
+    // not, and `click` already unifies mouse, touch, pen *and* keyboard.
+    button.addEventListener('click', () => {
+      notice = null;
+      startPuzzle(entry);
+    });
+    return button;
+  });
+
+  pickerEl.replaceChildren(...buttons);
+}
+
+function markActivePuzzle() {
+  for (const button of pickerEl.children) {
+    const active = button.dataset.puzzleId === puzzle.id;
+    button.setAttribute('aria-pressed', active ? 'true' : 'false');
+    if (active) button.dataset.active = 'true';
+    else delete button.dataset.active;
+  }
+}
 
 // The set is checked before anything is selected from it: with a duplicate id,
 // which board you get is undefined, so reporting the ambiguity beats loading
 // an arbitrary one.
-const { puzzle, notice } = selectPuzzle(PUZZLES, location.search);
-const problem = describePuzzleSetProblem(PUZZLES) || describePuzzleProblem(puzzle);
+const selected = selectPuzzle(PUZZLES, location.search);
+notice = selected.notice;
+const problem = describePuzzleSetProblem(PUZZLES) || describePuzzleProblem(selected.puzzle);
 
 if (problem) {
   statusEl.textContent = `Puzzle failed to load — ${problem}`;
   statusEl.dataset.state = 'error';
 } else {
-  cellStates = Array.from({ length: puzzle.size }, () => new Array(puzzle.size).fill(EMPTY));
-  cellElements = renderBoard(boardEl, puzzle);
   boardEl.addEventListener('pointerdown', onPointerDown);
   boardEl.addEventListener('pointermove', onPointerMove);
   boardEl.addEventListener('pointerup', onPointerUp);
   boardEl.addEventListener('pointercancel', onPointerCancel);
 
-  // Establishes the status line and, on an empty board, confirms no cell is
-  // flagged — the same path every later update takes.
-  refreshRuleState();
+  buildPicker(PUZZLES);
+  startPuzzle(selected.puzzle);
 }

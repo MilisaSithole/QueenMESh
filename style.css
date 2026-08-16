@@ -378,6 +378,56 @@ body {
 .cell[data-region="7"] { background-color: var(--region-7); }
 .cell[data-region="8"] { background-color: var(--region-8); }
 
+/* The first control outside the board, so it inherits the Phase 2 rules:
+   44px minimum target, no affordance that exists only on :hover (finger touch
+   has none), and no double-tap-zoom delay. */
+.picker {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.4rem;
+  padding: 0 0.25rem;
+}
+
+.picker-option {
+  min-width: 3.25rem;
+  min-height: 44px;
+  padding: 0 0.7rem;
+  border: 1px solid var(--surface);
+  border-radius: 0.5rem;
+  background-color: var(--surface);
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 0.85rem;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* The selected board is marked by fill and weight, not colour alone, so it
+   still reads with region patterns on or in greyscale. */
+.picker-option[data-active] {
+  background-color: var(--text);
+  border-color: var(--text);
+  color: var(--bg);
+  font-weight: 700;
+}
+
+/* Hover is an enhancement for mouse and S Pen; the active state above is what
+   actually conveys the selection, so finger users lose nothing. */
+@media (hover: hover) {
+  .picker-option:hover:not([data-active]) {
+    color: var(--text);
+    border-color: var(--text-dim);
+  }
+}
+
+.picker-option:focus-visible {
+  outline: 2px solid var(--text);
+  outline-offset: 2px;
+}
+
 .status {
   margin: 0;
   padding: 0.4rem 0.75rem;
