@@ -9,7 +9,7 @@
 // scaffolding size — the shipping range is 6x6 to 9x9 — so no dimension, loop
 // bound, or palette entry may assume 5.
 
-const BUILD_MARKER = 'build 013';
+const BUILD_MARKER = 'build 014';
 
 // EMPTY / MARK / CROWN come from rules.js, which owns the shared model. The
 // names below are presentation only.

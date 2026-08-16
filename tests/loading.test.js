@@ -16,11 +16,11 @@ test('no parameter loads the first puzzle', () => {
   ok(app.status.textContent.includes('starter-5x5'), app.status.textContent);
 });
 
-test('?puzzle=dev-9x9 loads the 9x9', () => {
-  const app = loadApp({ search: '?puzzle=dev-9x9' });
+test('?puzzle=curated-9x9 loads the 9x9', () => {
+  const app = loadApp({ search: '?puzzle=curated-9x9' });
   eq(app.size, 9, 'board size');
   eq(app.board.children.length, 81, 'cell count');
-  ok(app.status.textContent.includes('dev-9x9'), app.status.textContent);
+  ok(app.status.textContent.includes('curated-9x9'), app.status.textContent);
 });
 
 test('?puzzle=starter-5x5 loads the 5x5 explicitly', () => {
@@ -42,7 +42,7 @@ test('other query parameters are ignored', () => {
 });
 
 test('the selected board is playable, not just rendered', () => {
-  const app = loadApp({ search: '?puzzle=dev-9x9' });
+  const app = loadApp({ search: '?puzzle=curated-9x9' });
   app.tap(8, 8);
   eq(app.stateOf(8, 8), 'mark', 'last cell of the 9x9 responds to input');
   app.drag([[0, 0], [0, 1], [0, 2]]);

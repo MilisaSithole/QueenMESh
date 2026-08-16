@@ -94,7 +94,7 @@ class Fragment extends Element {
  *                                    sizes the shipped puzzle set does not cover
  * @param {object[]} [options.puzzles] substitute the whole set, for testing
  *                                    set-level problems like duplicate ids
- * @param {string} [options.search]   query string, e.g. '?puzzle=dev-9x9'
+ * @param {string} [options.search]   query string, e.g. '?puzzle=curated-9x9'
  */
 function loadApp({ puzzle, puzzles, search = '' } = {}) {
   const board = new Element('div');

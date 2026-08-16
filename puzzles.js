@@ -140,11 +140,33 @@ function describePuzzleSetProblem(puzzles) {
   return null;
 }
 
+// ---------------------------------------------------------------------------
+// THE SET
+//
+// One board per size, 5x5 through 9x9, ordered gently to steeply.
+//
+// Every board except the 5x5 came out of `tools/generate-puzzle.js`, which
+// grows regions from a chosen crown arrangement and then refines the layout
+// until exactly one solution survives. They are generated *and curated*: the
+// tool cannot tell whether a board looks like a fair puzzle, so candidates were
+// filtered for balanced region sizes and eyeballed before landing here.
+//
+// Ids never encode difficulty, on purpose. They are stable identifiers — they
+// appear in URLs and will key saved progress in Phase 7 — while difficulty is
+// expected to change: Phase 5's technique-tier solver measures it properly and
+// will re-bucket these. Baking a guess into an id would force a rename later,
+// and renaming an id silently discards a player's history.
+//
+// The `difficulty` labels below are provisional and assigned by grid size,
+// which the plan is explicit is a *weak* signal — a small board can be brutal
+// and a large one trivial. 'impossible' is the shakiest of them: the tier
+// definition means "needs trial-and-error branching", which is a specific claim
+// nothing has verified yet.
 const PUZZLES = [
   {
     id: 'starter-5x5',
     size: 5,
-    difficulty: 'easy',
+    difficulty: 'tutorial',
 
     // Verified to have exactly one solution: of the 14 crown arrangements that
     // satisfy row/column/adjacency on a 5x5, this region layout admits only
@@ -167,43 +189,114 @@ const PUZZLES = [
   },
 
   {
-    // Exists for one reason: 9x9 is the largest board the game will ship, and
-    // it is the only size where the ~44px tap target is actually in question
-    // (~45px per cell on a 412px-wide phone). Testing input on the 5x5 passes
-    // trivially and proves nothing. Phase 4 either promotes this into the real
-    // puzzle set or replaces it with a better-authored board.
-    //
-    // Worth recording for Phase 5: growing regions at random and keeping only
-    // unique-solution boards does NOT scale. At 9x9 there are 47,622 crown
-    // arrangements satisfying row/column/adjacency, and 143,000 random layouts
-    // produced zero unique puzzles. This one came from grow-then-refine —
-    // repeatedly find an unwanted alternate solution and reassign one cell to
-    // a neighbouring region to kill it, keeping every region contiguous and
-    // still holding exactly one crown. That found a unique board in 8 layouts.
-    id: 'dev-9x9',
-    size: 9,
-    difficulty: 'dev',
+    id: 'curated-6x6',
+    size: 6,
+    difficulty: 'easy',
 
-    //    2  2  2  1  1 (0) 0  0  3        lowercase/parens = crown cell
-    //    2  1  1 (1) 1  1  0  0  3
-    //    2 (2) 1  1  1  1  0  0  3
-    //    2  4  4  4  1  1  0  0 (3)
-    //    2  4 (4) 4  1  6  0  3  3
-    //    7  4  4  4  4  6 (5) 3  3
-    //    7  4  4  4 (6) 6  5  5  3
-    //   (7) 4  4  7  7  6  8  5  8
-    //    7  7  7  7  6  6  8 (8) 8
+    // region sizes 4,5,5,6,8,8 — spread 4, the most even of the set
+    //
+    //    1  1  0  0 (0) 0        parens mark the crown cell
+    //    5 (1) 1  2  2  3
+    //    5  4  1 (2) 3  3
+    //    5  4  4  2  2 (3)
+    //    5  5 (4) 4  3  3
+    //   (5) 5  5  4  4  4
     regions: [
-      [2, 2, 2, 1, 1, 0, 0, 0, 3],
-      [2, 1, 1, 1, 1, 1, 0, 0, 3],
-      [2, 2, 1, 1, 1, 1, 0, 0, 3],
-      [2, 4, 4, 4, 1, 1, 0, 0, 3],
-      [2, 4, 4, 4, 1, 6, 0, 3, 3],
-      [7, 4, 4, 4, 4, 6, 5, 3, 3],
-      [7, 4, 4, 4, 6, 6, 5, 5, 3],
-      [7, 4, 4, 7, 7, 6, 8, 5, 8],
-      [7, 7, 7, 7, 6, 6, 8, 8, 8],
+      [1, 1, 0, 0, 0, 0],
+      [5, 1, 1, 2, 2, 3],
+      [5, 4, 1, 2, 3, 3],
+      [5, 4, 4, 2, 2, 3],
+      [5, 5, 4, 4, 3, 3],
+      [5, 5, 5, 4, 4, 4],
     ],
-    solution: [5, 3, 1, 8, 2, 6, 4, 0, 7],
+    solution: [4, 1, 3, 5, 2, 0],
+  },
+
+  {
+    id: 'curated-7x7',
+    size: 7,
+    difficulty: 'medium',
+
+    // region sizes 5,5,5,6,8,9,11 — spread 6
+    //
+    //   (0) 0  0  0  1  1  2
+    //    0  0 (1) 0  1  1  2
+    //    0  1  1  1  1 (2) 2
+    //    3 (3) 1  1  4  2  5
+    //    3  3  3  3 (4) 2  5
+    //    3  3  3  4  4  4 (5)
+    //    6  6  6 (6) 6  5  5
+    regions: [
+      [0, 0, 0, 0, 1, 1, 2],
+      [0, 0, 1, 0, 1, 1, 2],
+      [0, 1, 1, 1, 1, 2, 2],
+      [3, 3, 1, 1, 4, 2, 5],
+      [3, 3, 3, 3, 4, 2, 5],
+      [3, 3, 3, 4, 4, 4, 5],
+      [6, 6, 6, 6, 6, 5, 5],
+    ],
+    solution: [0, 2, 5, 1, 4, 6, 3],
+  },
+
+  {
+    id: 'curated-8x8',
+    size: 8,
+    difficulty: 'hard',
+
+    // region sizes 5,6,6,6,8,8,12,13 — spread 8
+    //
+    //    1  0  0  0  0 (0) 0  0
+    //    1 (1) 2  2  2  0  0  0
+    //    3  1  2 (2) 2  0  2  0
+    //   (3) 1  2  2  2  2  2  2
+    //    3  3  3  3  4  4  4 (4)
+    //    7  7  3  3 (5) 6  6  4
+    //    7  7  5  5  5  5 (6) 4
+    //    7  7 (7) 7  5  6  6  6
+    regions: [
+      [1, 0, 0, 0, 0, 0, 0, 0],
+      [1, 1, 2, 2, 2, 0, 0, 0],
+      [3, 1, 2, 2, 2, 0, 2, 0],
+      [3, 1, 2, 2, 2, 2, 2, 2],
+      [3, 3, 3, 3, 4, 4, 4, 4],
+      [7, 7, 3, 3, 5, 6, 6, 4],
+      [7, 7, 5, 5, 5, 5, 6, 4],
+      [7, 7, 7, 7, 5, 6, 6, 6],
+    ],
+    solution: [5, 1, 3, 0, 7, 4, 6, 2],
+  },
+
+  {
+    // Replaces the dev-only 9x9 that Phase 2.2 added for tap-target testing.
+    // Same purpose still applies — this is the board to load when checking
+    // touch ergonomics, since 9x9 leaves only 44.20px per cell on a 412px-wide
+    // phone and every smaller board passes that check trivially.
+    id: 'curated-9x9',
+    size: 9,
+    difficulty: 'impossible',
+
+    // region sizes 4,5,6,8,9,10,11,14,14 — spread 10
+    //
+    //    0 (0) 0  2  2  2  2  1  1
+    //    0  3  0  0  2  2  1  1 (1)
+    //    3  3  0  0  2  2 (2) 2  1
+    //   (3) 0  0  0  2  2  2  1  1
+    //    3  3  0  0  2  4  4 (4) 1
+    //    3  3  0  5 (5) 5  5  4  4
+    //    3  3 (6) 6  8  5  5  4  4
+    //    6  3  6  6  8 (7) 4  4  4
+    //    6  6  6 (8) 8  7  7  7  7
+    regions: [
+      [0, 0, 0, 2, 2, 2, 2, 1, 1],
+      [0, 3, 0, 0, 2, 2, 1, 1, 1],
+      [3, 3, 0, 0, 2, 2, 2, 2, 1],
+      [3, 0, 0, 0, 2, 2, 2, 1, 1],
+      [3, 3, 0, 0, 2, 4, 4, 4, 1],
+      [3, 3, 0, 5, 5, 5, 5, 4, 4],
+      [3, 3, 6, 6, 8, 5, 5, 4, 4],
+      [6, 3, 6, 6, 8, 7, 4, 4, 4],
+      [6, 6, 6, 8, 8, 7, 7, 7, 7],
+    ],
+    solution: [1, 8, 6, 0, 7, 4, 2, 5, 3],
   },
 ];

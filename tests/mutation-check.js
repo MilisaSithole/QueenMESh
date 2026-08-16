@@ -59,12 +59,22 @@ const mutations = [
     (s) => s.replace('[1, 1, 0, 0, 0],', '[1, 0, 0, 0, 0],')],
   ['puzzles.js', 'the declared solution is wrong',
     (s) => s.replace('solution: [2, 0, 3, 1, 4]', 'solution: [2, 0, 3, 4, 1]')],
-  // Verified to take the 9x9 from 1 solution to 8. Most single-cell edits here
-  // leave it unique, so this one is picked deliberately rather than by eye.
-  ['puzzles.js', 'the 9x9 gains seven extra solutions',
-    (s) => s.replace('[2, 2, 2, 1, 1, 0, 0, 0, 3],', '[0, 2, 2, 1, 1, 0, 0, 0, 3],')],
+  // One mutation per board, so the per-puzzle test loops are shown to actually
+  // cover every entry rather than only the first. Each was found by searching
+  // for a single-cell change with the stated effect — most edits leave a board
+  // unique, so picking these by eye does not work.
+  ['puzzles.js', 'the 6x6 gains four extra solutions',
+    (s) => s.replace('[1, 1, 0, 0, 0, 0],', '[0, 1, 0, 0, 0, 0],')],
+  ['puzzles.js', 'the 7x7 gains a second solution',
+    (s) => s.replace('[0, 0, 0, 0, 1, 1, 2],', '[1, 0, 0, 0, 1, 1, 2],')],
+  ['puzzles.js', 'the 8x8 gains four extra solutions',
+    (s) => s.replace('[1, 0, 0, 0, 0, 0, 0, 0],', '[3, 0, 0, 0, 0, 0, 0, 0],')],
+  ['puzzles.js', 'the 9x9 gains two extra solutions',
+    (s) => s.replace('[0, 0, 0, 2, 2, 2, 2, 1, 1],', '[2, 0, 0, 2, 2, 2, 2, 1, 1],')],
   ['puzzles.js', 'a 9x9 region becomes disconnected',
-    (s) => s.replace('[7, 7, 7, 7, 6, 6, 8, 8, 8],', '[7, 7, 7, 0, 6, 6, 8, 8, 8],')],
+    (s) => s.replace('[0, 0, 0, 2, 2, 2, 2, 1, 1],', '[1, 0, 0, 2, 2, 2, 2, 1, 1],')],
+  ['puzzles.js', 'an 8x8 region becomes disconnected',
+    (s) => s.replace('[1, 0, 0, 0, 0, 0, 0, 0],', '[1, 0, 1, 0, 0, 0, 0, 0],')],
 
   // Phase 2.2 — puzzle selection
   ['main.js', '?puzzle= is ignored and the first board always loads',

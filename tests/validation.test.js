@@ -170,8 +170,8 @@ test('the win needs no extra action after the final crown', () => {
 });
 
 test('the 9x9 can be solved too', () => {
-  const nine = PUZZLES.find((p) => p.id === 'dev-9x9');
-  const app = loadApp({ search: '?puzzle=dev-9x9' });
+  const nine = PUZZLES.find((p) => p.id === 'curated-9x9');
+  const app = loadApp({ search: '?puzzle=curated-9x9' });
   app.placeCrowns(nine.solution);
   eq(app.violations(), []);
   eq(app.solved(), true);
