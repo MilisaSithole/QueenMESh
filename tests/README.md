@@ -14,6 +14,8 @@ work on a clean checkout with nothing but Node installed.
 | --- | --- |
 | `harness.js` | Test registry, assertions, pass/fail counting |
 | `dom-shim.js` | A hand-rolled DOM just large enough to run the real `main.js` |
+| `rules.test.js` | The four constraints, against hand-built boards (Phase 3) |
+| `validation.test.js` | Rule feedback and win detection reaching the DOM (Phase 3) |
 | `gestures.test.js` | The tap-versus-drag pointer state machine (Phase 2.1) |
 | `boundaries.test.js` | Region-boundary edge classes and corner joins (Phase 1.2) |
 | `puzzles.test.js` | Puzzle solvability and structure, palette guarantees, CSS traps |
@@ -31,6 +33,12 @@ without touching the tests.
 drive the actual `main.js` rather than a reimplementation of its logic. A
 reimplementation cheerfully agrees with itself while the shipped file is
 broken.
+
+**Logic and wiring are tested separately.** `rules.test.js` checks the
+constraints against hand-built state arrays; `validation.test.js` checks that
+playing real gestures makes those constraints show up on the board. They fail
+differently — correct rules that never render look exactly like no rules at
+all — so covering only one leaves a whole class of bug invisible.
 
 **Every test must be able to fail.** During Phase 1.2 a boundary test passed
 against genuinely broken code — it checked whether the boundary network was
@@ -50,6 +58,13 @@ that's a coverage hole to fill before trusting the suite.
   custom property, but not that it looks right. The tap-target test recomputes
   the sizing arithmetic from CSS constants rather than measuring a real layout,
   and assumes a 412px viewport.
+- **In particular, nothing here resolves the cascade.** A rule can exist,
+  match, and still lose to a later one of equal specificity. This is not
+  theoretical: the violation highlighting was written, tested green, and never
+  rendered, because a later `background:` shorthand at equal specificity reset
+  its `background-image`. Where a cascade hazard is known, guard it with a
+  targeted rule — as `no cell rule uses the background shorthand` now does —
+  because the general problem is out of reach here.
 - Nothing here replaces device testing. Touch and S Pen behaviour, tap-target
   comfort, and anything visual still need the phone.
 - `mutation-check.js` rewrites source files dozens of times in quick

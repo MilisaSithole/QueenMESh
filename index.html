@@ -33,6 +33,10 @@
     </div>
     <p class="status" id="status">Loading…</p>
   </main>
+  <!-- Order matters: rules.js defines the cell-state constants and the
+       constraint functions that main.js calls, and classic scripts share one
+       global scope with no module resolution to sort dependencies out. -->
+  <script src="rules.js"></script>
   <script src="puzzles.js"></script>
   <script src="main.js"></script>
 </body>

@@ -1,29 +1,28 @@
-// QueenMESh — Phase 2.1: cell states and pointer input.
+// QueenMESh — Phase 3: rendering, input, and live rule feedback.
 //
-// The board becomes interactive. Tapping a cell cycles it empty -> mark ->
-// crown -> empty; dragging across cells paints or erases X marks in bulk.
-// There is deliberately no rule checking here — five crowns in one row are
-// currently allowed. Phase 3 adds validation and win detection.
+// Tapping a cell cycles it empty -> mark -> crown -> empty; dragging across
+// cells paints or erases X marks in bulk. After every gesture the board is
+// re-checked against the four constraints in rules.js, clashing cells are
+// flagged, and a completed puzzle is announced.
 //
 // Everything is driven by puzzle.size. The 5x5 in puzzles.js is only a
 // scaffolding size — the shipping range is 6x6 to 9x9 — so no dimension, loop
 // bound, or palette entry may assume 5.
 
-const BUILD_MARKER = 'build 009';
+const BUILD_MARKER = 'build 012';
 
 // Raised only if a board is ever authored larger than the palette can colour.
 // The 9-colour ceiling is a real constraint, not an arbitrary one: see the
 // "Board size range" section of the implementation plan.
 const MAX_BOARD_SIZE = 9;
 
-// Cell states. Plain small integers held in a flat 2D array rather than
-// anything richer, because this structure outlives the phase: Phase 3
-// validates it, Phase 6's undo/redo clones it on every move, and Phase 7
-// serialises it to localStorage. Cheap to copy and cheap to stringify beats
-// expressive.
-const EMPTY = 0;
-const MARK = 1;
-const CROWN = 2;
+// EMPTY / MARK / CROWN come from rules.js, which owns the shared model. The
+// names below are presentation only.
+//
+// The state array is a plain 2D array of small integers rather than anything
+// richer, because it outlives this phase: rules.js validates it, Phase 6's
+// undo/redo clones it on every move, and Phase 7 serialises it to
+// localStorage. Cheap to copy and cheap to stringify beats expressive.
 
 // Index by state; drives both the data-state attribute and the glyph lookup.
 const STATE_NAMES = ['empty', 'mark', 'crown'];
@@ -134,6 +133,54 @@ function setCellState(row, col, state) {
  */
 function cycleCell(row, col) {
   setCellState(row, col, (cellStates[row][col] + 1) % STATE_NAMES.length);
+}
+
+/**
+ * Recompute rule violations and win state, and reflect both in the DOM.
+ *
+ * Violations are derived, never stored: keeping a second copy of "which cells
+ * are wrong" alongside the board would just be a cache to forget to
+ * invalidate. Recomputing costs a pass over at most 81 cells, which is far
+ * below anything a player could perceive.
+ *
+ * Called after every completed gesture rather than only after crown changes.
+ * Marks cannot create or clear a violation, so the extra calls are wasted
+ * work — but "recompute after any change" is a rule with no exceptions to get
+ * wrong later, and the work is negligible.
+ */
+function refreshRuleState() {
+  const violations = findViolations(cellStates, puzzle.regions);
+
+  // Two tiers: the clashing crowns get the strong marker, the rest of the
+  // broken row/column/region gets a tint. Both come off one attribute so a
+  // cell can never end up in an in-between state.
+  for (let row = 0; row < puzzle.size; row++) {
+    for (let col = 0; col < puzzle.size; col++) {
+      const cell = cellElements[row][col];
+      const key = cellKey(row, col);
+      if (violations.cells.has(key)) cell.dataset.violation = 'cell';
+      else if (violations.scope.has(key)) cell.dataset.violation = 'scope';
+      else delete cell.dataset.violation;
+    }
+  }
+
+  const solved = isSolved(cellStates, puzzle.regions);
+  if (solved) boardEl.dataset.solved = 'true';
+  else delete boardEl.dataset.solved;
+
+  updateStatus(solved);
+}
+
+function updateStatus(solved) {
+  const base = notice
+    ? `${notice} · ${BUILD_MARKER}`
+    : `${puzzle.id} · ${puzzle.size}×${puzzle.size} · ${BUILD_MARKER}`;
+
+  statusEl.textContent = solved ? `Solved! · ${base}` : base;
+
+  if (solved) statusEl.dataset.state = 'solved';
+  else if (notice) statusEl.dataset.state = 'warning';
+  else delete statusEl.dataset.state;
 }
 
 // ---------------------------------------------------------------------------
@@ -250,6 +297,10 @@ function endGesture(event) {
   gestureStart = null;
   paintMode = null;
   hasLeftStartCell = false;
+
+  // Every gesture ends here, including cancelled ones, so this is the single
+  // place rule state can be refreshed with no path left uncovered.
+  refreshRuleState();
 }
 
 /**
@@ -324,8 +375,7 @@ if (problem) {
   boardEl.addEventListener('pointerup', onPointerUp);
   boardEl.addEventListener('pointercancel', onPointerCancel);
 
-  statusEl.textContent = notice
-    ? `${notice} · ${BUILD_MARKER}`
-    : `${puzzle.id} · ${puzzle.size}×${puzzle.size} · ${BUILD_MARKER}`;
-  if (notice) statusEl.dataset.state = 'warning';
+  // Establishes the status line and, on an empty board, confirms no cell is
+  // flagged — the same path every later update takes.
+  refreshRuleState();
 }

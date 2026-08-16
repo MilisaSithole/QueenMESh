@@ -190,6 +190,89 @@ suite('palette — contrast floor the glyph colour depends on');
   // nine fills on screen at once, any two that drift together stop being
   // separate regions to the eye. The current floor is 32 (indigo/violet), so
   // 25 leaves room to retune without silently crossing into confusable.
+  // The violation marker has to read on all nine fills, and it cannot do so
+  // directly: red disappears on crimson and barely registers on yellow. The
+  // design dims the offending cell first, so this checks the marker against
+  // each *dimmed* fill rather than the raw one. Yellow is the binding case.
+  test('the violation marker reads on every dimmed region fill', () => {
+    const marker = css.match(/--violation:\s*(#[0-9a-f]{6})/)[1];
+    const washPercent = Number(css.match(/--violation-wash:\s*(\d+)%/)[1]) / 100;
+    const gridLine = css.match(/--grid-line:\s*(#[0-9a-f]{6})/)[1];
+
+    const channels = (hex) => {
+      const n = parseInt(hex.slice(1), 16);
+      return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+    };
+    const dim = (fill) =>
+      '#' + channels(gridLine)
+        .map((v, i) => Math.round(washPercent * v + (1 - washPercent) * channels(fill)[i]))
+        .map((v) => v.toString(16).padStart(2, '0'))
+        .join('');
+
+    const weak = fills
+      .map(([, , hex, name]) => ({ name, ratio: contrast(marker, dim(hex)) }))
+      .filter((f) => f.ratio < 3)
+      .map((f) => `${f.name} ${f.ratio.toFixed(2)}`);
+
+    eq(weak, [], 'dimmed fills where the violation marker falls below 3:1');
+  });
+
+  // The scope tint is judged differently from the marker. A player compares a
+  // tinted cell against the same region's untinted cells elsewhere on the
+  // board, so what matters is how far the tint moves a fill from its normal
+  // self — not its absolute contrast against anything. Crimson is the binding
+  // case, having the least room to shift toward red.
+  test('the scope tint visibly shifts every region fill', () => {
+    const tint = css.match(/--violation-tint:\s*(#[0-9a-f]{6})/)[1];
+    const amount = Number(css.match(/--violation-tint-amount:\s*(\d+)%/)[1]) / 100;
+
+    const channels = (hex) => {
+      const n = parseInt(hex.slice(1), 16);
+      return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+    };
+    const mix = (over, base, alpha) =>
+      '#' + channels(over)
+        .map((v, i) => Math.round(alpha * v + (1 - alpha) * channels(base)[i]))
+        .map((v) => v.toString(16).padStart(2, '0'))
+        .join('');
+
+    const weak = fills
+      .map(([, , hex, name]) => ({ name, shift: deltaE(hex, mix(tint, hex, amount)) }))
+      .filter((f) => f.shift < 25)
+      .map((f) => `${f.name} shifts only ${f.shift.toFixed(1)}`);
+
+    eq(weak, [], 'fills the scope tint barely changes');
+  });
+
+  // If the two tiers look alike, the distinction between "this crown clashes"
+  // and "this is the row it clashes in" is lost.
+  test('the two violation tiers are distinguishable from each other', () => {
+    const tint = css.match(/--violation-tint:\s*(#[0-9a-f]{6})/)[1];
+    const tintAmount = Number(css.match(/--violation-tint-amount:\s*(\d+)%/)[1]) / 100;
+    const gridLine = css.match(/--grid-line:\s*(#[0-9a-f]{6})/)[1];
+    const washAmount = Number(css.match(/--violation-wash:\s*(\d+)%/)[1]) / 100;
+
+    const channels = (hex) => {
+      const n = parseInt(hex.slice(1), 16);
+      return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+    };
+    const mix = (over, base, alpha) =>
+      '#' + channels(over)
+        .map((v, i) => Math.round(alpha * v + (1 - alpha) * channels(base)[i]))
+        .map((v) => v.toString(16).padStart(2, '0'))
+        .join('');
+
+    const tooSimilar = fills
+      .map(([, , hex, name]) => ({
+        name,
+        gap: deltaE(mix(tint, hex, tintAmount), mix(gridLine, hex, washAmount)),
+      }))
+      .filter((f) => f.gap < 15)
+      .map((f) => `${f.name}: tiers only ${f.gap.toFixed(1)} apart`);
+
+    eq(tooSimilar, []);
+  });
+
   test('no two region fills are perceptually close', () => {
     const clashes = [];
     for (let i = 0; i < fills.length; i++) {
@@ -226,6 +309,47 @@ suite('css — traps already hit once');
   // the boundary styling could be deleted and every other test would still
   // pass. Static pattern matching, not a rendering check — there is no layout
   // engine here — but it does pin the wiring.
+  // The bug this guards against was invisible to every other CSS test here,
+  // because they check that a rule *exists*, not that it survives the cascade.
+  // `.cell[data-region="N"] { background: ... }` sits after the violation rules
+  // at equal specificity, and the shorthand resets background-image — silently
+  // erasing every violation wash while the ring and glyph colour still applied,
+  // so it looked precisely like the feature had never been implemented.
+  test('no cell rule uses the background shorthand, which resets background-image', () => {
+    const offenders = [];
+    for (const match of css.replace(/\/\*[\s\S]*?\*\//g, '').matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+      const [, selector, body] = match;
+      if (!selector.includes('.cell')) continue;
+      if (/(^|[;\s])background\s*:/.test(body)) offenders.push(selector.trim());
+    }
+    eq(offenders, [], 'use background-color or background-image explicitly');
+  });
+
+  test('a clashing crown is actually styled, not just labelled', () => {
+    ok(/\.cell\[data-violation="cell"\]\s*{[^}]*--violation-ring:/.test(css), 'ring');
+    ok(/\.cell\[data-violation="cell"\]\s*{[^}]*background-image:/.test(css), 'dimming');
+    ok(
+      /\.cell\[data-violation="cell"\]\s\.glyph\s*{[^}]*color:\s*var\(--violation\)/.test(css),
+      'glyph colour'
+    );
+  });
+
+  test('the wider row/column/region highlight is styled too', () => {
+    ok(
+      /\.cell\[data-violation="scope"\]\s*{[^}]*var\(--violation-tint\)/.test(css),
+      'scope cells must be tinted, or the whole point of the two tiers is lost'
+    );
+  });
+
+  test('the violation ring is inert until a rule is broken', () => {
+    ok(/\.cell\s*{[^}]*--violation-ring:\s*0px/s.test(css), 'default must be 0px, and carry a unit');
+  });
+
+  test('a solved board is styled', () => {
+    ok(/\.board\[data-solved\]/.test(css), 'board');
+    ok(/\.status\[data-state="solved"\]/.test(css), 'status');
+  });
+
   test('all four boundary sides are wired up in CSS', () => {
     const missing = ['r', 'b', 'l', 't'].filter(
       (side) =>

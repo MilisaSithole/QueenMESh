@@ -35,6 +35,27 @@
   --glyph-crown: var(--grid-line);
   --glyph-mark: rgba(0, 0, 0, 0.5);
 
+  /* Rule violations. A red marker cannot simply be laid over the region fills:
+     it vanishes on crimson, and on yellow — the brightest fill — red barely
+     reads at all. So the offending cell is dimmed hard toward near-black first
+     and the marker drawn on that, which makes the contrast independent of
+     which region the clash happens in. Measured worst case 4.07:1, on yellow.
+
+     Dimming costs the cell its fill colour, but not its identity: the region
+     boundary lines are inset box-shadows, which paint above background-image,
+     so the region's shape stays legible while the cell is flagged. */
+  --violation: #ff5c78;
+  --violation-wash: 80%;
+
+  /* The wider row/column/region highlight. This one is judged differently:
+     the player compares a tinted cell against the *same region's* untinted
+     cells elsewhere, so what matters is how far the tint shifts a fill from
+     its normal self, not its absolute contrast. Measured worst case is a
+     CIE76 shift of 30 — on crimson, where a red tint has least to work with
+     and a lighter one would be invisible. */
+  --violation-tint: #3d0610;
+  --violation-tint-amount: 50%;
+
   /* Nine region colours, because the shipping range tops out at 9x9 and a
      board of N regions needs N distinct fills. Only five are used by the
      Phase 1 puzzle; the rest are defined now so a larger board never forces a
@@ -221,7 +242,14 @@ body {
    The board's own border supplies the outer frame, so cells on the board edge
    draw nothing on that side. */
 .cell {
-  background: var(--surface);
+  /* background-color, never the `background` shorthand, on anything that can
+     match a cell. The shorthand resets background-image, and the violation
+     highlighting paints its wash *through* background-image so it layers above
+     the region fill but below the glyph. The region rules sit later in this
+     file at equal specificity, so a shorthand there silently erased every
+     violation wash while leaving the ring and glyph colour intact — which
+     looked exactly like the highlighting had never been written. */
+  background-color: var(--surface);
   /* Centres the glyph. Because the cell separators are box-shadows rather
      than borders they consume no layout space, so the content box is the full
      cell on every cell -- a glyph sitting on a heavy region boundary lands in
@@ -240,7 +268,13 @@ body {
   --color-l: var(--grid-line);
   --color-t: var(--grid-line);
 
+  /* Zero spread paints nothing, so this layer is inert until a rule is broken. */
+  --violation-ring: 0px;
+
+  /* The violation ring is listed first so it paints over the region boundary
+     rather than being interrupted by it. */
   box-shadow:
+    inset 0 0 0 var(--violation-ring) var(--violation),
     inset calc(-1 * var(--edge-r)) 0 0 var(--color-r),
     inset 0 calc(-1 * var(--edge-b)) 0 var(--color-b),
     inset var(--edge-l) 0 0 var(--color-l),
@@ -295,15 +329,54 @@ body {
   color: var(--glyph-crown);
 }
 
-.cell[data-region="0"] { background: var(--region-0); }
-.cell[data-region="1"] { background: var(--region-1); }
-.cell[data-region="2"] { background: var(--region-2); }
-.cell[data-region="3"] { background: var(--region-3); }
-.cell[data-region="4"] { background: var(--region-4); }
-.cell[data-region="5"] { background: var(--region-5); }
-.cell[data-region="6"] { background: var(--region-6); }
-.cell[data-region="7"] { background: var(--region-7); }
-.cell[data-region="8"] { background: var(--region-8); }
+/* Rule violations, in two tiers.
+
+   "scope" is every cell of a broken row, column or region — it shows *why*
+   the crowns clash, which is the part that tells you what to move. "cell" is
+   a clashing crown itself.
+
+   Both dim via background-image rather than a pseudo-element so the wash
+   layers above the region fill but below the glyph; an absolutely positioned
+   pseudo-element would paint over the crown instead of behind it. */
+.cell[data-violation="scope"] {
+  background-image: linear-gradient(
+    color-mix(in srgb, var(--violation-tint) var(--violation-tint-amount), transparent),
+    color-mix(in srgb, var(--violation-tint) var(--violation-tint-amount), transparent)
+  );
+}
+
+/* Set on both crowns of a clash, since neither is more wrong than the other. */
+.cell[data-violation="cell"] {
+  background-image: linear-gradient(
+    color-mix(in srgb, var(--grid-line) var(--violation-wash), transparent),
+    color-mix(in srgb, var(--grid-line) var(--violation-wash), transparent)
+  );
+  --violation-ring: max(2px, calc(var(--cell-px) * 0.06));
+}
+
+.cell[data-violation="cell"] .glyph {
+  color: var(--violation);
+}
+
+/* Win state. Deliberately just a quiet outline — Phase 6 owns the celebration. */
+.board[data-solved] {
+  border-color: var(--region-1);
+}
+
+.status[data-state="solved"] {
+  background: color-mix(in srgb, var(--region-1) 20%, var(--surface));
+  color: var(--region-1);
+}
+
+.cell[data-region="0"] { background-color: var(--region-0); }
+.cell[data-region="1"] { background-color: var(--region-1); }
+.cell[data-region="2"] { background-color: var(--region-2); }
+.cell[data-region="3"] { background-color: var(--region-3); }
+.cell[data-region="4"] { background-color: var(--region-4); }
+.cell[data-region="5"] { background-color: var(--region-5); }
+.cell[data-region="6"] { background-color: var(--region-6); }
+.cell[data-region="7"] { background-color: var(--region-7); }
+.cell[data-region="8"] { background-color: var(--region-8); }
 
 .status {
   margin: 0;

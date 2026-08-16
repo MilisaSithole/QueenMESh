@@ -116,11 +116,27 @@ function loadApp({ puzzle, search = '' } = {}) {
 
   global.location = { search };
 
-  const puzzlesSource = puzzle
-    ? `const PUZZLES = ${JSON.stringify([puzzle])};`
-    : fs.readFileSync(path.join(ROOT, 'puzzles.js'), 'utf8');
-  const mainSource = fs.readFileSync(path.join(ROOT, 'main.js'), 'utf8');
-  new Function(puzzlesSource + '\n' + mainSource)();
+  const read = (file) => fs.readFileSync(path.join(ROOT, file), 'utf8');
+
+  // Load exactly the scripts index.html loads, in the order it loads them,
+  // into one shared scope — which is what classic scripts get in a browser.
+  //
+  // Deriving the list from the page rather than hardcoding it here is
+  // deliberate, and not hypothetical caution: a <script> tag went missing once
+  // and every test still passed, because the harness was loading a file the
+  // page no longer did. A hardcoded list tests a page that does not exist.
+  const scripts = [...read('index.html').matchAll(/<script src="([^"]+)"><\/script>/g)]
+    .map((m) => m[1]);
+  if (!scripts.length) throw new Error('no <script src> tags found in index.html');
+
+  const sources = scripts.map((src) =>
+    src === 'puzzles.js' && puzzle ? `const PUZZLES = ${JSON.stringify([puzzle])};` : read(src)
+  );
+
+  // Hand the rule functions back out so tests can exercise them directly,
+  // without a board in the way.
+  const exposed = 'return { EMPTY, MARK, CROWN, cellKey, crownPositions, findViolations, isSolved };';
+  const rules = new Function(sources.join('\n') + '\n' + exposed)();
 
   const cellAt = (row, col) =>
     board.children.find((c) => Number(c.dataset.row) === row && Number(c.dataset.col) === col);
@@ -142,8 +158,30 @@ function loadApp({ puzzle, search = '' } = {}) {
   const api = {
     board,
     status,
+    rules,
     cellAt,
     stateOf,
+    /** True when the cell holds a crown that is actually clashing. */
+    violatingAt: (row, col) => cellAt(row, col).dataset.violation === 'cell',
+    /** Clashing crowns, as sorted "row,col" keys, for stable comparison. */
+    violations: () =>
+      board.children
+        .filter((c) => c.dataset.violation === 'cell')
+        .map((c) => `${c.dataset.row},${c.dataset.col}`)
+        .sort(),
+    /** Cells tinted as part of a broken row/column/region, excluding the crowns. */
+    scope: () =>
+      board.children
+        .filter((c) => c.dataset.violation === 'scope')
+        .map((c) => `${c.dataset.row},${c.dataset.col}`)
+        .sort(),
+    /** Every cell carrying any violation styling. */
+    highlighted: () =>
+      board.children
+        .filter((c) => c.dataset.violation)
+        .map((c) => `${c.dataset.row},${c.dataset.col}`)
+        .sort(),
+    solved: () => board.dataset.solved === 'true',
     size: board.children.length ? Math.max(...board.children.map((c) => Number(c.dataset.row))) + 1 : 0,
 
     /** Start a new gesture and return its pointer id. */
@@ -155,6 +193,20 @@ function loadApp({ puzzle, search = '' } = {}) {
     tap(row, col) {
       const id = api.down(row, col);
       api.up(row, col, id);
+    },
+
+    /** Tap until the cell holds a crown, whatever it held before. */
+    placeCrown(row, col) {
+      let guard = 0;
+      while (api.stateOf(row, col) !== 'crown') {
+        api.tap(row, col);
+        if (++guard > 4) throw new Error(`cell ${row},${col} will not accept a crown`);
+      }
+    },
+
+    /** Place crowns at solution[row] = col, as a player finishing the puzzle. */
+    placeCrowns(columnPerRow) {
+      columnPerRow.forEach((col, row) => api.placeCrown(row, col));
     },
 
     /** cells: [[row, col], ...] — press on the first, drag through the rest. */

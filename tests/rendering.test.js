@@ -17,6 +17,38 @@ const PUZZLES = new Function(
   fs.readFileSync(path.join(ROOT, 'puzzles.js'), 'utf8') + '; return PUZZLES;'
 )();
 
+// A missing <script> tag breaks the whole page and nothing else notices: the
+// browser throws a ReferenceError on load and renders an empty board. There is
+// no module system here to catch it, so the page's own script list is the only
+// source of truth and it needs asserting directly.
+suite('page — every script is loaded, in a workable order');
+
+{
+  const scripts = [...html.matchAll(/<script src="([^"]+)"><\/script>/g)].map((m) => m[1]);
+
+  test('index.html loads every JavaScript file in the project root', () => {
+    const onDisk = fs
+      .readdirSync(ROOT)
+      .filter((f) => f.endsWith('.js'))
+      .sort();
+    eq(scripts.slice().sort(), onDisk, 'scripts referenced vs files present');
+  });
+
+  test('every referenced script actually exists', () => {
+    const missing = scripts.filter((src) => !fs.existsSync(path.join(ROOT, src)));
+    eq(missing, []);
+  });
+
+  test('dependencies load before the code that uses them', () => {
+    const order = (name) => scripts.indexOf(name);
+    ok(order('rules.js') !== -1, 'rules.js must be loaded');
+    ok(order('puzzles.js') !== -1, 'puzzles.js must be loaded');
+    ok(order('main.js') !== -1, 'main.js must be loaded');
+    ok(order('rules.js') < order('main.js'), 'rules.js defines what main.js calls');
+    ok(order('puzzles.js') < order('main.js'), 'main.js reads PUZZLES at load');
+  });
+}
+
 suite('rendering — the grid matches the puzzle');
 
 for (const puzzle of PUZZLES) {

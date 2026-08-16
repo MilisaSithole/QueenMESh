@@ -21,7 +21,7 @@ const path = require('path');
 const { execFileSync } = require('child_process');
 
 const ROOT = path.join(__dirname, '..');
-const FILES = ['main.js', 'style.css', 'puzzles.js', 'index.html'];
+const FILES = ['main.js', 'style.css', 'puzzles.js', 'index.html', 'rules.js'];
 const backup = Object.fromEntries(
   FILES.map((f) => [f, fs.readFileSync(path.join(ROOT, f), 'utf8')])
 );
@@ -85,6 +85,12 @@ const mutations = [
     (s) => s.replace('cell.dataset.state = STATE_NAMES[EMPTY];', 'cell.dataset.state = STATE_NAMES[MARK];')],
   ['index.html', 'a sprite symbol is renamed out from under main.js',
     (s) => s.replace('id="glyph-mark"', 'id="glyph-cross"')],
+  ['index.html', 'the rules.js script tag goes missing',
+    (s) => s.replace('  <script src="rules.js"></script>\n', '')],
+  ['index.html', 'scripts load in the wrong order',
+    (s) => s.replace(
+      '  <script src="rules.js"></script>\n  <script src="puzzles.js"></script>\n  <script src="main.js"></script>',
+      '  <script src="main.js"></script>\n  <script src="rules.js"></script>\n  <script src="puzzles.js"></script>')],
   // Moves the crown's base bar, which shifts the bounding box. Nudging a point
   // that is not an extreme leaves the box unchanged and proves nothing.
   ['index.html', 'the crown glyph drifts off-centre',
@@ -95,6 +101,86 @@ const mutations = [
     (s) => s.replace('padding-left: max(0.25rem, env(safe-area-inset-left));', 'padding-left: max(1.5rem, env(safe-area-inset-left));')],
   ['style.css', 'the board no longer runs edge to edge',
     (s) => s.replace('--board-px: min(98vw, 68vh, 34rem);', '--board-px: min(88vw, 68vh, 34rem);')],
+
+  // Phase 3 — the four constraints
+  ['rules.js', 'the row constraint stops being checked',
+    (s) => s.replace('flagSharedGroups(({ row }) => row, cellsInRow);', '')],
+  ['rules.js', 'the column constraint stops being checked',
+    (s) => s.replace('flagSharedGroups(({ col }) => col, cellsInColumn);', '')],
+  ['rules.js', 'the region constraint stops being checked',
+    (s) => s.replace('flagSharedGroups(({ row, col }) => regions[row][col], (id) => byRegion.get(id));', '')],
+  ['rules.js', 'adjacency ignores diagonals',
+    (s) => s.replace(
+      'Math.abs(a.row - b.row) <= 1 && Math.abs(a.col - b.col) <= 1',
+      '(a.row === b.row || a.col === b.col) && Math.abs(a.row - b.row) + Math.abs(a.col - b.col) <= 1')],
+  ['rules.js', 'adjacency reaches one cell too far',
+    (s) => s.replace(
+      'Math.abs(a.row - b.row) <= 1 && Math.abs(a.col - b.col) <= 1',
+      'Math.abs(a.row - b.row) <= 2 && Math.abs(a.col - b.col) <= 2')],
+  ['rules.js', 'only the second crown of a clashing pair is flagged',
+    (s) => s.replace('for (const { row, col } of group) cells.add(cellKey(row, col));',
+      'cells.add(cellKey(group[1].row, group[1].col));')],
+  ['rules.js', 'marks count as crowns',
+    (s) => s.replace('if (states[row][col] === CROWN) crowns.push({ row, col });',
+      'if (states[row][col] !== EMPTY) crowns.push({ row, col });')],
+  ['rules.js', 'a win no longer requires a full board',
+    (s) => s.replace('crownPositions(states).length === states.length &&', '')],
+  ['rules.js', 'a win no longer requires a clean board',
+    (s) => s.replace('findViolations(states, regions).cells.size === 0', 'true')],
+  ['rules.js', 'findViolations mutates the board it is handed',
+    (s) => s.replace('const crowns = crownPositions(states);',
+      'const crowns = crownPositions(states); states[0][0] = CROWN;')],
+
+  // Phase 3 — wiring the rules to the board
+  ['main.js', 'violations are never cleared once set',
+    (s) => s.replace("else delete cell.dataset.violation;", '')],
+  ['main.js', 'violations never reach the DOM',
+    (s) => s.replace("if (violations.cells.has(key)) cell.dataset.violation = 'cell';",
+      "if (false) cell.dataset.violation = 'cell';")],
+  ['main.js', 'the solved flag is never cleared',
+    (s) => s.replace('else delete boardEl.dataset.solved;', '')],
+  ['main.js', 'rule state is not refreshed after a gesture',
+    (s) => s.replace(/\n  \/\/ Every gesture ends here[\s\S]*?refreshRuleState\(\);\n/, '\n')],
+  ['style.css', 'the violation ring default loses its unit',
+    (s) => s.replace('--violation-ring: 0px;', '--violation-ring: 0;')],
+  ['style.css', 'flagged cells are no longer dimmed, so red vanishes on yellow',
+    (s) => s.replace(/--violation-wash:\s*80%;/, '--violation-wash: 25%;')],
+  ['style.css', 'the flagged glyph keeps its normal colour',
+    (s) => s.replace(/\.cell\[data-violation="cell"\] \.glyph \{[^}]*\}/, '.cell[data-violation="cell"] .glyph { }')],
+
+  // Phase 3 — whole row/column/region highlighting
+  ['rules.js', 'the row scope shrinks to just the clashing crowns',
+    (s) => s.replace('flagSharedGroups(({ row }) => row, cellsInRow);',
+      'flagSharedGroups(({ row }) => row, () => []);')],
+  ['rules.js', 'the column scope shrinks to just the clashing crowns',
+    (s) => s.replace('flagSharedGroups(({ col }) => col, cellsInColumn);',
+      'flagSharedGroups(({ col }) => col, () => []);')],
+  ['rules.js', 'the region scope shrinks to just the clashing crowns',
+    (s) => s.replace('flagSharedGroups(({ row, col }) => regions[row][col], (id) => byRegion.get(id));',
+      'flagSharedGroups(({ row, col }) => regions[row][col], () => []);')],
+  ['rules.js', 'a row highlight bleeds into the column as well',
+    (s) => s.replace('flagSharedGroups(({ row }) => row, cellsInRow);',
+      'flagSharedGroups(({ row }) => row, (row) => cellsInRow(row).concat(cellsInColumn(row)));')],
+  ['rules.js', 'adjacency spreads a scope it should not have',
+    (s) => s.replace('  for (const cell of cells) scope.add(cell);',
+      '  for (const cell of cells) { scope.add(cell); const [r, c] = cell.split(\',\').map(Number); if (r + 1 < size) scope.add(cellKey(r + 1, c)); }')],
+  ['rules.js', 'scope stops including the clashing crowns',
+    (s) => s.replace('  for (const cell of cells) scope.add(cell);', '')],
+  ['main.js', 'scope cells are never marked',
+    (s) => s.replace("else if (violations.scope.has(key)) cell.dataset.violation = 'scope';", '')],
+  ['main.js', 'clashing crowns are demoted to plain scope styling',
+    (s) => s.replace("if (violations.cells.has(key)) cell.dataset.violation = 'cell';",
+      "if (violations.cells.has(key)) cell.dataset.violation = 'scope';")],
+  ['style.css', 'the scope tint is too faint to see on crimson',
+    (s) => s.replace('--violation-tint-amount: 50%;', '--violation-tint-amount: 12%;')],
+  ['style.css', 'the two tiers collapse into the same appearance',
+    (s) => s.replace('--violation-tint: #3d0610;', '--violation-tint: #0d0d10;')
+             .replace('--violation-tint-amount: 50%;', '--violation-tint-amount: 80%;')],
+  ['style.css', 'scope cells lose their styling entirely',
+    (s) => s.replace(/\.cell\[data-violation="scope"\] \{[^}]*\}/, '.cell[data-violation="scope"] { }')],
+  ['style.css', 'a region rule reverts to the background shorthand, erasing the wash',
+    (s) => s.replace('.cell[data-region="0"] { background-color: var(--region-0); }',
+      '.cell[data-region="0"] { background: var(--region-0); }')],
 ];
 
 const restore = () => {
