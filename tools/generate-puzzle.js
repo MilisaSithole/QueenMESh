@@ -105,6 +105,61 @@ function solutionsOf(size, regions, arrangements, stopAt = Infinity) {
   return found;
 }
 
+/**
+ * An incremental view of "which arrangements are currently solutions".
+ *
+ * Refinement changes one cell at a time and then asks how many solutions
+ * remain, which the naive version answers by rescanning every arrangement —
+ * 47,622 of them at 9x9, on every step and again for every candidate move it
+ * tries. That is what made a 9x9 take over twenty seconds.
+ *
+ * Two changes remove almost all of it:
+ *
+ *   * A region set becomes a bitmask. `mask |= 1 << region` with a popcount
+ *     replaces building and sizing a Set of nine values.
+ *   * Changing cell (r, c) can only affect arrangements whose crown in row r
+ *     sits in column c — one Nth of them. Indexing arrangements by cell means
+ *     a move re-checks ~5,300 arrangements instead of 47,622.
+ */
+function createSolutionIndex(size, regions, arrangements) {
+  // arrangementsByCell[row][col] = indices of arrangements using that cell.
+  const byCell = Array.from({ length: size }, () =>
+    Array.from({ length: size }, () => []));
+  arrangements.forEach((cols, i) => {
+    for (let row = 0; row < size; row++) byCell[row][cols[row]].push(i);
+  });
+
+  const full = (1 << size) - 1;
+  const isSolution = (cols) => {
+    let mask = 0;
+    for (let row = 0; row < size; row++) mask |= 1 << regions[row][cols[row]];
+    return mask === full;
+  };
+
+  const valid = new Uint8Array(arrangements.length);
+  let count = 0;
+  arrangements.forEach((cols, i) => {
+    valid[i] = isSolution(cols) ? 1 : 0;
+    count += valid[i];
+  });
+
+  return {
+    get count() { return count; },
+
+    /** Re-evaluate only the arrangements a change at (row, col) can affect. */
+    update(row, col) {
+      for (const i of byCell[row][col]) {
+        const next = isSolution(arrangements[i]) ? 1 : 0;
+        if (next !== valid[i]) { count += next - valid[i]; valid[i] = next; }
+      }
+    },
+
+    solutions() {
+      return arrangements.filter((_, i) => valid[i]);
+    },
+  };
+}
+
 function isContiguous(size, regions, id) {
   const cells = [];
   for (let r = 0; r < size; r++) {
@@ -128,12 +183,23 @@ function isContiguous(size, regions, id) {
 
 /** Nudge a layout toward a single solution. Returns the layout, or null. */
 function refine(size, regions, target, arrangements, rand, maxSteps = 500) {
+  const index = createSolutionIndex(size, regions, arrangements);
+
   for (let step = 0; step < maxSteps; step++) {
-    const solutions = solutionsOf(size, regions, arrangements);
-    if (solutions.length === 1) {
-      return solutions[0].join() === target.join() ? regions : null;
+    if (index.count === 1) {
+      // The surviving solution is always the target, and that is an invariant
+      // rather than a coincidence: the only cells refinement ever reassigns are
+      // ones where the unwanted solution differs from the target, so no target
+      // crown cell is ever touched and the target never stops being a solution.
+      // If it is the last one standing, it is the one.
+      //
+      // Kept as a guard anyway, because the invariant depends on the candidate
+      // filter above and a future change there would break it silently.
+      const only = index.solutions()[0];
+      return only.join() === target.join() ? regions : null;
     }
 
+    const solutions = index.solutions();
     const unwanted = shuffled(solutions.filter((s) => s.join() !== target.join()), rand)[0];
     if (!unwanted) return null;
 
@@ -159,11 +225,15 @@ function refine(size, regions, target, arrangements, rand, maxSteps = 500) {
 
       for (const to of neighbours) {
         regions[row][col] = to;
-        const better =
-          isContiguous(size, regions, from) &&
-          solutionsOf(size, regions, arrangements, solutions.length).length < solutions.length;
-        if (better) { moved = true; break; }
+        index.update(row, col);
+
+        if (index.count < solutions.length && isContiguous(size, regions, from)) {
+          moved = true;
+          break;
+        }
+
         regions[row][col] = from;
+        index.update(row, col);
       }
       if (moved) break;
     }
@@ -269,6 +339,10 @@ function preview(size, regions, solution) {
 
 module.exports = {
   generate, candidates, allArrangements, growRegions, refine, isContiguous, mulberry32,
+  // Both counting paths are exported so tests can hold them against each
+  // other. The fast one is an optimisation of the slow one, and an
+  // optimisation that changes answers is just a bug that runs quickly.
+  solutionsOf, createSolutionIndex,
   MIN_SIZE, MAX_SIZE,
 };
 

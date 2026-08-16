@@ -12,9 +12,14 @@
 // Add a mutation here whenever you add a test. If a new mutation is not
 // caught, that is a coverage hole worth filling before trusting the suite.
 //
-// Caveat: this rewrites main.js / style.css / puzzles.js in place and restores
-// them in a `finally`. If the process is killed mid-run, recover with
-// `git checkout -- main.js style.css puzzles.js`.
+// This rewrites source files in place and restores them in a `finally`. That
+// is not enough on its own: kill the process and the `finally` never runs,
+// leaving a mutated file behind that looks like ordinary uncommitted work. So
+// the originals are also written to disk before anything is touched, and a
+// leftover copy is detected and restored on the next run.
+//
+// It also runs the suite once per mutation, which is why the generator tests
+// honour QUEENS_FAST — a full 9x9 generation pass here would cost minutes.
 
 const fs = require('fs');
 const path = require('path');
@@ -23,11 +28,39 @@ const { execFileSync } = require('child_process');
 const ROOT = path.join(__dirname, '..');
 const FILES = [
   'main.js', 'style.css', 'puzzles.js', 'index.html', 'rules.js',
-  'tools/solver.js',
+  'tools/solver.js', 'tools/generate-puzzle.js',
 ];
+const SAFE_DIR = path.join(__dirname, '.mutation-backup');
+
+/**
+ * Put the tree back if a previous run was killed before its `finally` ran.
+ * Without this the leftover mutation is silently inherited: the next run
+ * measures against already-broken source and reports nonsense, and `git
+ * status` shows only "modified", indistinguishable from real work in progress.
+ */
+function recoverFromInterruptedRun() {
+  if (!fs.existsSync(SAFE_DIR)) return;
+  const stale = fs.readdirSync(SAFE_DIR);
+  if (!stale.length) return;
+
+  console.log('a previous run was interrupted — restoring source files first\n');
+  for (const flat of stale) {
+    const target = path.join(ROOT, flat.replace(/__/g, path.sep));
+    fs.writeFileSync(target, fs.readFileSync(path.join(SAFE_DIR, flat), 'utf8'));
+  }
+  fs.rmSync(SAFE_DIR, { recursive: true, force: true });
+}
+
+recoverFromInterruptedRun();
+
 const backup = Object.fromEntries(
   FILES.map((f) => [f, fs.readFileSync(path.join(ROOT, f), 'utf8')])
 );
+
+fs.mkdirSync(SAFE_DIR, { recursive: true });
+for (const [file, contents] of Object.entries(backup)) {
+  fs.writeFileSync(path.join(SAFE_DIR, file.replace(/[\/]/g, '__')), contents);
+}
 
 const mutations = [
   ['style.css', 'grid tracks revert to bare 1fr',
@@ -320,11 +353,50 @@ const mutations = [
   ['tools/solver.js', 'the brute-force count ignores adjacency',
     (s) => s.replace('if (row > 0 && Math.abs(col - cols[row - 1]) < 2) continue;\n      const region',
       'const region')],
+
+  // Phase 6.1 — the generator, and the optimisation inside it
+  ['tools/generate-puzzle.js', 'the solution bitmask stops distinguishing regions',
+    (s) => s.replace('mask |= 1 << regions[row][cols[row]];', 'mask |= regions[row][cols[row]];')],
+  ['tools/generate-puzzle.js', 'the incremental index never refreshes',
+    (s) => s.replace('for (const i of byCell[row][col]) {', 'for (const i of []) {')],
+  ['tools/generate-puzzle.js', 'the index is built over the wrong cells',
+    (s) => s.replace('byCell[row][cols[row]].push(i);', 'byCell[cols[row]][row].push(i);')],
+  ['tools/generate-puzzle.js', 'the index count drifts on update',
+    (s) => s.replace('if (next !== valid[i]) { count += next - valid[i]; valid[i] = next; }',
+      'valid[i] = next;')],
+  // Three mutations were tried here and removed rather than papered over:
+  //   * dropping refinement's "must reduce the solution count" guard affects
+  //     how fast it converges, not what it emits — every board still has to
+  //     reach exactly one solution before it is returned;
+  //   * dropping the candidate contiguity filter is equivalent code, since
+  //     refine() already refuses any move that splits a region;
+  //   * dropping growRegions' no-progress bail makes it loop forever, so the
+  //     suite would hang instead of failing, which is worse than no mutation;
+  //   * dropping refine's "solves to the target" guard changes nothing, because
+  //     refinement never reassigns a target crown cell, so the target cannot
+  //     stop being a solution. Verified over 40 refined boards. The guard stays
+  //     in the source as protection against a future change to that invariant.
+  ['tools/generate-puzzle.js', 'refinement stops preserving region contiguity',
+    (s) => s.replace('if (index.count < solutions.length && isContiguous(size, regions, from)) {',
+      'if (index.count < solutions.length) {')],
+  ['tools/generate-puzzle.js', 'lone-cell regions are allowed through',
+    (s) => s.replace('if (Math.min(...sizes) < smallest || Math.max(...sizes) > largest) continue;', '')],
+  ['tools/generate-puzzle.js', 'generation ignores the seed, so every board is the same',
+    (s) => s.replace('const rand = mulberry32(seed * 7919 + size);', 'const rand = mulberry32(size);')],
 ];
 
 const restore = () => {
   for (const f of FILES) fs.writeFileSync(path.join(ROOT, f), backup[f]);
 };
+
+// Cover the abrupt exits a `finally` cannot: Ctrl-C, and a kill signal.
+for (const signal of ['SIGINT', 'SIGTERM']) {
+  process.on(signal, () => {
+    restore();
+    fs.rmSync(SAFE_DIR, { recursive: true, force: true });
+    process.exit(130);
+  });
+}
 
 let caught = 0;
 const missed = [];
@@ -346,7 +418,10 @@ try {
 
     let suiteFailed = false;
     try {
-      execFileSync('node', [path.join(ROOT, 'tests', 'run.js')], { stdio: 'pipe' });
+      execFileSync('node', [path.join(ROOT, 'tests', 'run.js')], {
+        stdio: 'pipe',
+        env: { ...process.env, QUEENS_FAST: '1' },
+      });
     } catch {
       suiteFailed = true;
     }
@@ -356,6 +431,7 @@ try {
   }
 } finally {
   restore();
+  fs.rmSync(SAFE_DIR, { recursive: true, force: true });
 }
 
 console.log(`\n${caught}/${mutations.length} defects caught`);

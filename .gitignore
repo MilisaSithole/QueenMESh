@@ -11,3 +11,6 @@ __pycache__/
 .venv/
 venv/
 .pytest_cache/
+
+# Scratch copies written by tests/mutation-check.js
+tests/.mutation-backup/

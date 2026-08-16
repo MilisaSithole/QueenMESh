@@ -290,9 +290,47 @@ Documentation for this layer should be written alongside the code, not bolted on
 - From a Python REPL, manually call each `env.py` method against one known puzzle and check the outputs against what you'd expect by hand (e.g., `legal_actions()` should shrink exactly as predicted after placing a couple of crowns).
 
 **Phase 6 — Quality-of-life polish**
-Timer, mistake counter, undo/redo, a "clear board" button, a hint system (highlight one deducible cell), a subtle win animation, and a difficulty selector (Easy / Medium / Hard / Impossible) that pulls from the difficulty-tagged puzzle pool built in Phase 5. This is also where a p5.js or CSS-animation layer for the win state fits nicely if you want that visual flourish.
+Timer, mistake counter, undo/redo, a "clear board" button, a hint system, animations, a fresh board on every visit, and a difficulty picker.
+
+**A fresh puzzle every visit is the headline, not a nicety.** A puzzle game you solve once has no second session. Everything else in this phase is polish on top of that.
+
+*Generation strategy, chosen against measured numbers:*
+
+Live generation is free at small sizes and impossible at large ones — one board takes under 50ms at 6×6 and 7×7, about 0.6s at 8×8, and **over 20 seconds at 9×9**, because the refinement loop re-counts all 47,622 arrangements on every step. Generating on demand at page load would freeze the tab.
+
+So: **optimise the generator, then generate ahead of time in the background.** While the player is working on a board, the game quietly builds more, keeping a cache of at least three ready puzzles per size and difficulty. Loading a puzzle consumes one and triggers a top-up. The player never waits for generation because generation always happened during the previous puzzle.
+
+Two constraints that shape the implementation:
+
+- **The first visit has an empty cache**, so a small seed set stays baked into `puzzles.js` to guarantee an instant first board. The cache takes over from there.
+- **Background work must not make the board janky.** A Web Worker is the obvious tool, but workers cannot be constructed from `file://` in most browsers, which would cost the zero-setup property the whole stack was chosen for. Time-slicing on the main thread (`requestIdleCallback`, falling back to chunked timeouts) works everywhere and is the safer default; a worker can be layered on later as an enhancement where it is available.
+
+*The difficulty picker is now justified.* Phase 4.3's picker offers one board per size, which made a separate difficulty control redundant. With a pool holding several boards per bucket, picking a difficulty becomes the primary choice and size becomes a consequence of it.
+
+*Hints work from the board in front of you, not from an empty grid:*
+
+1. **Check for something already wrong, first.** A hint that suggests a next move on a board that has gone wrong is worse than useless — it implies the position is still recoverable. Two kinds of wrong are worth distinguishing: a rule violation, which the board already highlights, and a crown that breaks no rule but is not in the solution, which is otherwise invisible. The second is the one a hint earns its keep on.
+2. **Otherwise, give the next easiest move.** Feed the current crowns to the tiered solver as `given`, take the first deduction it makes, and surface it with its reason — the solver's log already carries human-readable text like "region 4 must take row 3". Lowest tier first falls out of the ladder's design, so the hint is always the easiest available step rather than an arbitrary one.
+
+The `given` option added in Phase 5.1 exists for exactly this. The remaining work is packaging: `tools/solver.js` is a Node CommonJS module, and the browser needs it as a classic script.
+
+*Animations:* placing a crown, placing a mark, a rule violation appearing, and the win. Small and CSS-driven — the win state already exposes `data-solved`, and violations already expose `data-violation`, so each has a hook. p5.js remains unnecessary; adding a dependency for one flourish is not worth the weight.
+
+*Sub-phases (one commit each):*
+
+- **Phase 6.1 — Generator optimisation.** Make 9×9 viable. No UI change; success is measured in seconds per board.
+- **Phase 6.2 — Background generation, cache, fresh board per visit, difficulty picker.** The headline feature and the packaging work behind it.
+- **Phase 6.3 — Hints.** Error-first, state-aware, with reasons.
+- **Phase 6.4 — Undo/redo and clear.** Retires the "re-pick the board to restart" workaround from Phase 4.3.
+- **Phase 6.5 — Timer and mistake counter.** Both are session state Phase 7 will persist, so they want the same shape.
+- **Phase 6.6 — Animations.** Crown, mark, violation, win.
 
 *Test before moving on:*
+- Reload several times and confirm a different board each time, with no perceptible wait.
+- Play a board through while watching for stutter — background generation must not make the grid feel sticky.
+- Pick each difficulty and confirm the board that loads is actually of that difficulty.
+- Ask for a hint on a board with a wrong-but-legal crown on it and confirm the hint says so rather than suggesting a next move.
+- Ask for a hint mid-solve and confirm the suggested cell is genuinely deducible from the position, not merely correct.
 - Timer starts, pauses/resumes, and resets correctly across a full attempt, including backgrounding and returning to the tab.
 - Mistake counter increments only on genuine rule violations — not on X-marking, undo, or clearing.
 - Undo/redo behaves correctly through a full solve, including at the very start (nothing to undo) and right after a win.
