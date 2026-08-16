@@ -9,6 +9,7 @@ const fs = require('fs');
 const path = require('path');
 const { suite, test, eq, ok } = require('./harness');
 const { loadApp, ROOT } = require('./dom-shim');
+const { geometry5x5 } = require('./fixtures');
 
 const PUZZLES = new Function(
   fs.readFileSync(path.join(ROOT, 'puzzles.js'), 'utf8') + '; return PUZZLES;'
@@ -86,13 +87,13 @@ test('a column clash highlights the entire column', () => {
 });
 
 test('a region clash highlights the whole region, however it is shaped', () => {
-  const app = loadApp();
-  // Region 1 of the starter puzzle: (0,0) (0,1) (1,0) (2,0) — an L shape,
-  // which is precisely the case two flagged cells alone cannot convey.
+  // Uses a frozen board: this names exact cells, so it is a test about one
+  // particular L-shaped region rather than about whatever currently ships.
+  const app = loadApp({ puzzle: geometry5x5 });
   const regionOne = [];
-  for (let row = 0; row < starter.size; row++) {
-    for (let col = 0; col < starter.size; col++) {
-      if (starter.regions[row][col] === 1) regionOne.push(`${row},${col}`);
+  for (let row = 0; row < geometry5x5.size; row++) {
+    for (let col = 0; col < geometry5x5.size; col++) {
+      if (geometry5x5.regions[row][col] === 1) regionOne.push(`${row},${col}`);
     }
   }
   app.placeCrown(0, 1);
@@ -101,7 +102,9 @@ test('a region clash highlights the whole region, however it is shaped', () => {
 });
 
 test('adjacency highlights only the two crowns, since it has no wider scope', () => {
-  const app = loadApp();
+  // Frozen board again: these two cells must be adjacent while sharing no row,
+  // column or region, which is a property of a specific layout.
+  const app = loadApp({ puzzle: geometry5x5 });
   app.placeCrown(1, 1);
   app.placeCrown(2, 2);
   eq(app.violations(), ['1,1', '2,2']);

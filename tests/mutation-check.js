@@ -58,26 +58,43 @@ const mutations = [
     (s) => s.replace('const el = document.elementFromPoint(event.clientX, event.clientY);', 'const el = event.target;')],
   ['main.js', 'left/top boundary classes never applied',
     (s) => s.replace(/if \(col > 0 && region !== regions\[row\]\[col - 1\]\).*\n.*if \(row > 0 && region !== regions\[row - 1\]\[col\]\).*/, '')],
-  ['puzzles.js', 'a region id is altered, adding a second solution',
-    (s) => s.replace('[1, 1, 0, 0, 0],', '[1, 0, 0, 0, 0],')],
-  ['puzzles.js', 'the declared solution is wrong',
-    (s) => s.replace('solution: [2, 0, 3, 1, 4]', 'solution: [2, 0, 3, 4, 1]')],
-  // One mutation per board, so the per-puzzle test loops are shown to actually
-  // cover every entry rather than only the first. Each was found by searching
+  // One defect per shipped board, so the per-puzzle test loops are shown to
+  // reach every entry rather than only the first. Each was found by searching
   // for a single-cell change with the stated effect — most edits leave a board
-  // unique, so picking these by eye does not work.
-  ['puzzles.js', 'the 6x6 gains four extra solutions',
-    (s) => s.replace('[1, 1, 0, 0, 0, 0],', '[0, 1, 0, 0, 0, 0],')],
+  // unique, so choosing these by eye does not work.
+  ['puzzles.js', 'the 5x5 gains a second solution',
+    (s) => s.replace('[3, 1, 0, 0, 0],', '[1, 1, 0, 0, 0],')],
+  ['puzzles.js', 'a 5x5 region becomes disconnected',
+    (s) => s.replace('[3, 1, 0, 0, 0],', '[3, 1, 0, 1, 0],')],
+  ['puzzles.js', 'the declared 5x5 solution is wrong',
+    (s) => s.replace('solution: [4, 1, 3, 0, 2],', 'solution: [4, 1, 3, 2, 0],')],
+  ['puzzles.js', 'the 6x6 gains extra solutions',
+    (s) => s.replace('[1, 1, 0, 0, 0, 0],', '[2, 1, 0, 0, 0, 0],')],
+  ['puzzles.js', 'a 6x6 region becomes disconnected',
+    (s) => s.replace('[1, 1, 0, 0, 0, 0],', '[1, 1, 0, 1, 0, 0],')],
   ['puzzles.js', 'the 7x7 gains a second solution',
-    (s) => s.replace('[0, 0, 0, 0, 1, 1, 2],', '[1, 0, 0, 0, 1, 1, 2],')],
-  ['puzzles.js', 'the 8x8 gains four extra solutions',
-    (s) => s.replace('[1, 0, 0, 0, 0, 0, 0, 0],', '[3, 0, 0, 0, 0, 0, 0, 0],')],
-  ['puzzles.js', 'the 9x9 gains two extra solutions',
+    (s) => s.replace('[0, 0, 0, 0, 0, 0, 1],', '[0, 2, 0, 0, 0, 0, 1],')],
+  ['puzzles.js', 'a 7x7 region becomes disconnected',
+    (s) => s.replace('[0, 0, 0, 0, 0, 0, 1],', '[1, 0, 0, 0, 0, 0, 1],')],
+  ['puzzles.js', 'the 8x8 gains extra solutions',
+    (s) => s.replace('[1, 1, 1, 1, 0, 0, 0, 0],', '[1, 1, 1, 0, 0, 0, 0, 0],')],
+  ['puzzles.js', 'an 8x8 region becomes disconnected',
+    (s) => s.replace('[1, 1, 1, 1, 0, 0, 0, 0],', '[1, 1, 0, 1, 0, 0, 0, 0],')],
+  ['puzzles.js', 'the 9x9 gains extra solutions',
     (s) => s.replace('[0, 0, 0, 2, 2, 2, 2, 1, 1],', '[2, 0, 0, 2, 2, 2, 2, 1, 1],')],
   ['puzzles.js', 'a 9x9 region becomes disconnected',
     (s) => s.replace('[0, 0, 0, 2, 2, 2, 2, 1, 1],', '[1, 0, 0, 2, 2, 2, 2, 1, 1],')],
-  ['puzzles.js', 'an 8x8 region becomes disconnected',
-    (s) => s.replace('[1, 0, 0, 0, 0, 0, 0, 0],', '[1, 0, 1, 0, 0, 0, 0, 0],')],
+
+  // Phase 5.3 — difficulty labels are claims the solver checks
+  ['puzzles.js', 'a difficulty label no longer matches the measured difficulty',
+    (s) => s.replace("difficulty: 'medium',", "difficulty: 'easy',")],
+  ['tools/solver.js', 'every solvable board is bucketed easy',
+    (s) => s.replace("if (rating.tier <= 2) return 'easy';", "return 'easy';")],
+  ['tools/solver.js', 'the hard/medium boundary moves',
+    (s) => s.replace("=== 3).length >= 2 ? 'hard' : 'medium'", "=== 3).length >= 9 ? 'hard' : 'medium'")],
+  ['tools/solver.js', 'a stalled board is bucketed as merely hard',
+    (s) => s.replace("if (!rating.solved) return rating.tier === 4 ? 'impossible' : null;",
+      "if (!rating.solved) return 'hard';")],
 
   // Phase 2.2 — puzzle selection
   ['main.js', '?puzzle= is ignored and the first board always loads',
@@ -216,7 +233,7 @@ const mutations = [
   ['puzzles.js', 'an empty puzzle set is allowed',
     (s) => s.replace("if (!Array.isArray(puzzles) || puzzles.length === 0) return 'no puzzles are defined';", '')],
   ['puzzles.js', 'a shipped puzzle loses its declared solution',
-    (s) => s.replace('solution: [2, 0, 3, 1, 4],', '')],
+    (s) => s.replace('solution: [4, 1, 3, 0, 2],', '')],
   ['main.js', 'the set-level check is never run',
     (s) => s.replace('describePuzzleSetProblem(PUZZLES) || describePuzzleProblem(selected.puzzle)',
       'describePuzzleProblem(selected.puzzle)')],

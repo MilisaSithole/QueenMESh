@@ -6,6 +6,7 @@
 
 const { suite, test, eq, ok } = require('./harness');
 const { loadApp } = require('./dom-shim');
+const { geometry5x5 } = require('./fixtures');
 
 const HALF = 2;   // half a boundary, in raster units
 const UNIT = 16;  // cell size, in raster units
@@ -172,11 +173,16 @@ for (const size of [5, 6, 7, 8, 9]) {
 suite('boundaries — corners join without notches');
 
 {
-  const app = loadApp();
+  // A frozen board, not whatever ships as PUZZLES[0]. The negative control
+  // needs geometry that actually notches under the defective scheme, and
+  // when Phase 5.3 replaced the puzzle set this test silently stopped
+  // discriminating — it measured zero notches and would have passed against
+  // the very bug it exists to catch.
+  const notchFixture = geometry5x5;
+
+  const app = loadApp({ puzzle: notchFixture });
   const size = 5;
-  const regions = Array.from({ length: size }, (_, r) =>
-    Array.from({ length: size }, (_, c) => Number(app.cellAt(r, c).dataset.region))
-  );
+  const regions = notchFixture.regions;
   const edge = edgeReader(app);
 
   test('starter puzzle: no notched junctions', () => {

@@ -16,30 +16,15 @@ const path = require('path');
 const { suite, test, note, eq, ok } = require('./harness');
 const { ROOT } = require('./dom-shim');
 const {
-  solve, rate, progressFrom, createState, place, eliminate, rules, countSolutions,
+  solve, rate, progressFrom, createState, place, eliminate, rules, countSolutions, difficultyOf,
 } = require('../tools/solver');
+const { geometry5x5, tierOne4x4 } = require('./fixtures');
 
 const PUZZLES = new Function(
   fs.readFileSync(path.join(ROOT, 'puzzles.js'), 'utf8') + '; return PUZZLES;'
 )();
 
-/**
- * A 4x4 built so Tier 1 alone can crack it: region 0 is a single cell, which
- * is forced immediately, and the eliminations cascade from there. Exists to
- * prove the machinery works, since no shipped board exercises it from empty.
- */
-const tierOneFixture = {
-  id: 'fixture-tier1',
-  size: 4,
-  difficulty: 'test',
-  regions: [
-    [2, 0, 1, 1],
-    [2, 1, 1, 1],
-    [2, 2, 3, 3],
-    [2, 3, 3, 3],
-  ],
-  solution: [1, 3, 0, 2],
-};
+const tierOneFixture = tierOne4x4;
 
 const asPairs = (solution) => solution.map((col, row) => [row, col]);
 
@@ -143,8 +128,12 @@ suite('solver — each Tier 1 rule pulls its own weight');
 // Driving the whole ladder cannot distinguish these: the three rules cover for
 // one another, so disabling any single one still solves the fixture. Each is
 // therefore cornered on a board where only it can fire.
-
-const starter = PUZZLES[0];
+//
+// Cornering a rule means naming exact cells, so these use a frozen board of
+// their own rather than whatever ships as PUZZLES[0]. They did use the shipped
+// board, and every one of them broke the moment Phase 5.3 swapped the puzzle
+// set — a rule test has no business depending on this month's content.
+const starter = geometry5x5;
 
 test('the row rule fires when a row is down to one cell', () => {
   const state = createState(starter);
@@ -279,13 +268,13 @@ suite('solver — the ladder actually uses every rung');
 // Testing the rules directly proves they work, not that they are wired in.
 // Drop a whole tier from TIERS and every direct rule test still passes.
 
-test('a real solve draws on Tier 1, Tier 2 and Tier 3', () => {
-  const solvable = PUZZLES.map(rate).find((r) => r.solved);
-  ok(solvable, 'no board is solvable by the ladder, so this cannot be checked');
-
-  const tiersUsed = new Set(solvable.log.map((step) => step.tier));
+test('real solves draw on Tier 1, Tier 2 and Tier 3', () => {
+  // Pooled across the set, not per board: an easy board legitimately never
+  // reaches Tier 3, so asking any single one to exercise the whole ladder
+  // tests the puzzle rather than the solver.
+  const tiersUsed = new Set(PUZZLES.flatMap((p) => rate(p).log).map((step) => step.tier));
   for (const tier of [1, 2, 3]) {
-    ok(tiersUsed.has(tier), `${solvable.id} never used tier ${tier}: saw ${[...tiersUsed]}`);
+    ok(tiersUsed.has(tier), `no board ever used tier ${tier}: saw ${[...tiersUsed].sort()}`);
   }
 });
 
@@ -305,6 +294,66 @@ test('Tier 3 contributes multi-group deductions on real boards', () => {
     tierThree.some((step) => / and /.test(step.reason)),
     `Tier 3 should name several groups: ${tierThree.map((s) => s.reason)[0]}`
   );
+});
+
+suite('solver — shipped difficulty labels are measured, not guessed');
+
+// The whole point of Phase 5.3. Until now the labels were assigned by grid
+// size and flagged as guesses; from here a label is a claim the solver can
+// check, and this is the check.
+for (const puzzle of PUZZLES) {
+  test(`${puzzle.id}: declared "${puzzle.difficulty}" matches what the solver measures`, () => {
+    const measured = difficultyOf(rate(puzzle));
+    eq(measured, puzzle.difficulty);
+  });
+}
+
+test('the set is mostly solvable by reasoning, not by guessing', () => {
+  const buckets = PUZZLES.map((p) => difficultyOf(rate(p)));
+  const impossible = buckets.filter((b) => b === 'impossible').length;
+  for (const [i, b] of buckets.entries()) note(`${PUZZLES[i].id}: ${b}`);
+
+  // Phase 5.2 shipped a set where four of five boards could not be solved by
+  // logic at all. A scale where most content sits in the top bucket measures
+  // the solver's reach rather than difficulty.
+  ok(
+    impossible <= 1,
+    `${impossible} of ${PUZZLES.length} boards need trial and error — the set has drifted back`
+  );
+});
+
+test('the set spans a range rather than clustering', () => {
+  const distinct = new Set(PUZZLES.map((p) => difficultyOf(rate(p))));
+  ok(distinct.size >= 3, `only ${distinct.size} difficulty levels present: ${[...distinct]}`);
+});
+
+test('difficulty rises with board size across the set', () => {
+  const order = { easy: 0, medium: 1, hard: 2, impossible: 3 };
+  const bySize = [...PUZZLES].sort((a, b) => a.size - b.size);
+  const ranks = bySize.map((p) => order[difficultyOf(rate(p))]);
+  const descents = ranks.filter((r, i) => i > 0 && r < ranks[i - 1]);
+  eq(descents, [], `difficulty should not fall as size grows: ${ranks}`);
+});
+
+suite('solver — difficulty bucketing');
+
+test('a board needing nothing above Tier 2 is easy', () => {
+  eq(difficultyOf({ solved: true, tier: 2, log: [{ tier: 2 }, { tier: 1 }] }), 'easy');
+});
+
+test('one Tier 3 deduction is medium, several make it hard', () => {
+  const withTierThree = (n) => ({
+    solved: true, tier: 3,
+    log: [...Array(n)].map(() => ({ tier: 3 })).concat([{ tier: 2 }]),
+  });
+  eq(difficultyOf(withTierThree(1)), 'medium');
+  eq(difficultyOf(withTierThree(2)), 'hard');
+  eq(difficultyOf(withTierThree(5)), 'hard');
+});
+
+test('a stall is impossible, and a broken board is not bucketed at all', () => {
+  eq(difficultyOf({ solved: false, tier: 4, log: [] }), 'impossible');
+  eq(difficultyOf({ solved: false, tier: null, log: [] }), null);
 });
 
 suite('solver — the harness itself');
@@ -370,10 +419,21 @@ test('a solved board reports the rung it actually needed', () => {
 });
 
 test('given crowns are respected and not double-counted', () => {
-  const puzzle = PUZZLES[0];
-  const result = progressFrom(puzzle, asPairs(puzzle.solution).slice(0, 2));
-  eq(result.placed >= 2, true);
-  eq(result.deduced, result.placed - 2, 'deduced excludes what was handed over');
+  // Deliberately a board the ladder cannot finish alone, so the given crowns
+  // have to be visible in the result rather than being ones the solver would
+  // have found anyway. On a board it can solve, ignoring `given` entirely
+  // still produces the right answer and the test proves nothing.
+  const puzzle = PUZZLES.find((p) => !rate(p).solved);
+  ok(puzzle, 'no unsolvable board available to test against');
+
+  const given = asPairs(puzzle.solution).slice(0, 2);
+  const result = progressFrom(puzzle, given);
+
+  for (const [row, col] of given) {
+    eq(result.crowns[row], col, `the crown handed in at row ${row} should be on the board`);
+  }
+  ok(result.placed >= given.length, `placed ${result.placed}, given ${given.length}`);
+  eq(result.deduced, result.placed - given.length, 'deduced excludes what was handed over');
 });
 
 test('a contradictory board is reported, not silently mis-solved', () => {

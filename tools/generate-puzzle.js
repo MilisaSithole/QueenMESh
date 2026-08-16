@@ -177,6 +177,46 @@ function refine(size, regions, target, arrangements, rand, maxSteps = 500) {
  * of the grid makes a puzzle look wrong even when it is logically sound, so
  * several candidates are produced and the most balanced kept.
  */
+/**
+ * Yield every unique, reasonably balanced board this search turns up.
+ *
+ * Separate from generate() because a batch wants all of them — rating a
+ * population is the only way to see what the generator actually produces —
+ * while authoring one board wants the single most balanced.
+ */
+function* candidates(size, { attempts = 1500, timeBudgetMs = 120000, seedFrom = 1 } = {}) {
+  const arrangements = allArrangements(size);
+  const smallest = 3;
+  const largest = size * 2;
+  const startedAt = Date.now();
+
+  for (let seed = seedFrom; seed < seedFrom + attempts; seed++) {
+    if (Date.now() - startedAt > timeBudgetMs) return;
+
+    const rand = mulberry32(seed * 7919 + size);
+    const target = arrangements[Math.floor(rand() * arrangements.length)];
+    const layout = growRegions(size, target.map((c, r) => [r, c]), rand);
+    if (!layout) continue;
+
+    const refined = refine(size, layout, target, arrangements, rand);
+    if (!refined) continue;
+
+    const sizes = new Array(size).fill(0);
+    for (let r = 0; r < size; r++) for (let c = 0; c < size; c++) sizes[refined[r][c]]++;
+    if (Math.min(...sizes) < smallest || Math.max(...sizes) > largest) continue;
+    if (!sizes.every((_, id) => isContiguous(size, refined, id))) continue;
+
+    yield {
+      size,
+      regions: refined,
+      solution: target,
+      sizes,
+      spread: Math.max(...sizes) - Math.min(...sizes),
+      seed,
+    };
+  }
+}
+
 function generate(size, { attempts = 1500, timeBudgetMs = 120000 } = {}) {
   const arrangements = allArrangements(size);
   // A three-cell region is normal on a real board; scaling the floor with size
@@ -226,6 +266,15 @@ function preview(size, regions, solution) {
   }
   return lines.join('\n');
 }
+
+module.exports = {
+  generate, candidates, allArrangements, growRegions, refine, isContiguous, mulberry32,
+  MIN_SIZE, MAX_SIZE,
+};
+
+// Everything below is the command line, and must stay behind this guard so the
+// module can be required without generating anything.
+if (require.main !== module) return;
 
 const sizes = process.argv.slice(2).map(Number);
 if (!sizes.length || sizes.some((n) => !Number.isInteger(n) || n < MIN_SIZE || n > MAX_SIZE)) {

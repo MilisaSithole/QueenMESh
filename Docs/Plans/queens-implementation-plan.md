@@ -232,14 +232,20 @@ Grid size is still worth varying as a coarse secondary lever — Easy at 6×6 up
 - **Phase 5.2 — Tiers 2 and 3.** The real deduction rules — region-confinement ("pointing pairs") and the chained, multi-region interactions above it. Tier 4 needs no code of its own: it is defined by the solver stalling while brute force still reports a unique solution, so it falls out as soon as 1–3 are trustworthy. Expect Tier 3's boundary to need tightening once real puzzles are run through it; the plan's description of it is the vaguest of the four.
 - **Phase 5.3 — Batch generation, bucketing and re-labelling.** Generate 20–50 boards, sort them into the four buckets, keep a reserve of each, and **correct the five provisional difficulty labels from Phase 4.2**, which were assigned by grid size and flagged at the time as guesses.
 
-  **Phase 5.2 measured the ladder against the current set, and the result blocks straightforward bucketing.** With Tiers 1–3 implemented and verified sound, only one of the five boards is solvable by logic alone (`curated-8x8`, rated hard). The other four stall and therefore rate "impossible" — including the 5×5, which no player would describe that way. A scale where four fifths of the content lands in the top bucket is not measuring difficulty; it is measuring the solver's reach.
+  **Phase 5.2 measured the ladder against the then-current set, and the result blocked straightforward bucketing.** With Tiers 1–3 implemented and verified sound, only one of the five boards was solvable by logic alone. The other four stalled and rated "impossible" — including a 5×5, which no player would describe that way.
 
-  Two candidate explanations, and 5.3 has to establish which before it labels anything:
+  **Phase 5.3 settled it by sampling, and explanation (2) was right.** Rating a population of freshly generated boards rather than the five that happened to ship: **at 6×6, 63% are solvable by logic** (20% needing nothing above Tier 2, 43% needing Tier 3) and only 37% stall. The old set was an unlucky draw, made likelier by the fact that 4.2 selected candidates for *region balance* — a presentation quality with no relationship to solvability.
 
-  1. **The ladder is still too weak.** Tiers 1–3 cover the locked-set family and one adjacency rule. Real solvers use more, and each addition would move boards down the scale.
-  2. **The boards are genuinely nasty.** `tools/generate-puzzle.js` refines for *uniqueness* and nothing else — it makes regions awkward precisely to kill alternative solutions, with no pressure toward being humanly solvable. Uniqueness and fair-solvability are different properties, and only one of them is currently being selected for.
+  So the fix belonged in the generator, and `tools/build-puzzle-set.js` now applies it: **generate, rate, and select by measured difficulty**, rather than labelling after the fact. Difficulty buckets fall out of generation.
 
-  If (2) holds even partly, the fix belongs in the generator rather than the solver: **filter candidates by "the tiered solver can finish it" as well as "it has one solution"**, and difficulty buckets then fall out of generation instead of being applied afterwards. That also gives the scale a floor — no shipped board would be unsolvable by logic unless deliberately chosen as an Impossible.
+  One structural finding survives from 5.1: **Tier 1 alone never opens a board, so a bucket defined as "solved using nothing above Tier 1" stays empty forever** — 0% across every size sampled. Meanwhile Tier 3 swallows most solvable boards, so using it as one bucket lumps a board needing a single multi-region deduction with one needing several. The four buckets are therefore drawn from *how much* Tier 3 reasoning a board demands, with the boundary taken from the sample (of 27 solvable boards: 7 needed no Tier 3, 15 needed exactly one step, 5 needed two or more):
+
+  - **easy** — solved needing nothing above Tier 2
+  - **medium** — solved, needing exactly one Tier 3 deduction
+  - **hard** — solved, needing two or more
+  - **impossible** — the ladder stalls while brute force confirms a unique solution
+
+  A board with several solutions is reported *unratable* rather than impossible. That distinction matters: "impossible" is a difficulty, and filing a broken board under it would ship it to a player as a fiendish puzzle.
 
 *A caveat on the checklist below:* it asks whether the tier ratings line up with your own sense of how hard the Phase 4 boards were. That comparison only means something once those boards have actually been played — an unplayed board has no intuition to check the solver against, and agreeing with a number you have no independent feel for is not evidence of anything.
 

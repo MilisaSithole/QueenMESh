@@ -166,26 +166,23 @@ const PUZZLES = [
   {
     id: 'starter-5x5',
     size: 5,
-    difficulty: 'tutorial',
+    difficulty: 'easy',
 
-    // Verified to have exactly one solution: of the 14 crown arrangements that
-    // satisfy row/column/adjacency on a 5x5, this region layout admits only
-    // the one recorded below. Every region is contiguous, sizes are 5/4/4/6/6,
-    // and none is a degenerate single cell.
-    //
-    //   B B a A A       lowercase marks the crown cell
-    //   b A A C C
-    //   B D D c E
-    //   D d D C E
-    //   D E E E e
+    // region sizes 4,5,5,5,6 — spread 2
+    // tools/solver.js: tier 2, solved in 18 deductions
+    //    3  1  0  0 (0)        parens mark the crown cell
+    //    3 (1) 2  2  0
+    //    3  1  1 (2) 0
+    //   (3) 3  2  2  4
+    //    4  4 (4) 4  4
     regions: [
-      [1, 1, 0, 0, 0],
-      [1, 0, 0, 2, 2],
-      [1, 3, 3, 2, 4],
-      [3, 3, 3, 2, 4],
-      [3, 4, 4, 4, 4],
+      [3, 1, 0, 0, 0],
+      [3, 1, 2, 2, 0],
+      [3, 1, 1, 2, 0],
+      [3, 3, 2, 2, 4],
+      [4, 4, 4, 4, 4],
     ],
-    solution: [2, 0, 3, 1, 4],
+    solution: [4, 1, 3, 0, 2],
   },
 
   {
@@ -193,23 +190,23 @@ const PUZZLES = [
     size: 6,
     difficulty: 'easy',
 
-    // region sizes 4,5,5,6,8,8 — spread 4, the most even of the set
-    //
-    //    1  1  0  0 (0) 0        parens mark the crown cell
-    //    5 (1) 1  2  2  3
-    //    5  4  1 (2) 3  3
-    //    5  4  4  2  2 (3)
-    //    5  5 (4) 4  3  3
-    //   (5) 5  5  4  4  4
+    // region sizes 4,4,4,7,8,9 — spread 5
+    // tools/solver.js: tier 2, solved in 9 deductions
+    //    1  1  0  0 (0) 0
+    //    1  1 (1) 0  0  0
+    //   (2) 5  1  1  0  0
+    //    2  5  4  3  3 (3)
+    //    2  5  4 (4) 3  3
+    //    2 (5) 4  3  3  3
     regions: [
       [1, 1, 0, 0, 0, 0],
-      [5, 1, 1, 2, 2, 3],
-      [5, 4, 1, 2, 3, 3],
-      [5, 4, 4, 2, 2, 3],
-      [5, 5, 4, 4, 3, 3],
-      [5, 5, 5, 4, 4, 4],
+      [1, 1, 1, 0, 0, 0],
+      [2, 5, 1, 1, 0, 0],
+      [2, 5, 4, 3, 3, 3],
+      [2, 5, 4, 4, 3, 3],
+      [2, 5, 4, 3, 3, 3],
     ],
-    solution: [4, 1, 3, 5, 2, 0],
+    solution: [4, 2, 0, 5, 3, 1],
   },
 
   {
@@ -217,25 +214,25 @@ const PUZZLES = [
     size: 7,
     difficulty: 'medium',
 
-    // region sizes 5,5,5,6,8,9,11 — spread 6
-    //
-    //   (0) 0  0  0  1  1  2
-    //    0  0 (1) 0  1  1  2
-    //    0  1  1  1  1 (2) 2
-    //    3 (3) 1  1  4  2  5
-    //    3  3  3  3 (4) 2  5
-    //    3  3  3  4  4  4 (5)
-    //    6  6  6 (6) 6  5  5
+    // region sizes 4,4,6,7,7,9,12 — spread 8
+    // tools/solver.js: tier 3, solved in 18 deductions
+    //   (0) 0  0  0  0  0  1
+    //    0  2  3  1  1 (1) 1
+    //    0 (2) 3  1  1  1  1
+    //    0  2  3 (3) 1  1  1
+    //    2  2  3  3  4  4 (4)
+    //    2  6  3  5 (5) 5  4
+    //    2  6 (6) 6  5  5  5
     regions: [
-      [0, 0, 0, 0, 1, 1, 2],
-      [0, 0, 1, 0, 1, 1, 2],
-      [0, 1, 1, 1, 1, 2, 2],
-      [3, 3, 1, 1, 4, 2, 5],
-      [3, 3, 3, 3, 4, 2, 5],
-      [3, 3, 3, 4, 4, 4, 5],
-      [6, 6, 6, 6, 6, 5, 5],
+      [0, 0, 0, 0, 0, 0, 1],
+      [0, 2, 3, 1, 1, 1, 1],
+      [0, 2, 3, 1, 1, 1, 1],
+      [0, 2, 3, 3, 1, 1, 1],
+      [2, 2, 3, 3, 4, 4, 4],
+      [2, 6, 3, 5, 5, 5, 4],
+      [2, 6, 6, 6, 5, 5, 5],
     ],
-    solution: [0, 2, 5, 1, 4, 6, 3],
+    solution: [0, 5, 1, 3, 6, 4, 2],
   },
 
   {
@@ -243,40 +240,43 @@ const PUZZLES = [
     size: 8,
     difficulty: 'hard',
 
-    // region sizes 5,6,6,6,8,8,12,13 — spread 8
-    //
-    //    1  0  0  0  0 (0) 0  0
-    //    1 (1) 2  2  2  0  0  0
-    //    3  1  2 (2) 2  0  2  0
-    //   (3) 1  2  2  2  2  2  2
-    //    3  3  3  3  4  4  4 (4)
-    //    7  7  3  3 (5) 6  6  4
-    //    7  7  5  5  5  5 (6) 4
-    //    7  7 (7) 7  5  6  6  6
+    // region sizes 3,4,4,5,8,13,13,14 — spread 11
+    // tools/solver.js: tier 3, solved in 26 deductions
+    //    1  1  1  1  0  0 (0) 0
+    //    1 (1) 1  4  0  3  0  2
+    //    1  1  1  4  0  3  0 (2)
+    //    1  1  4  4 (3) 3  6  2
+    //    5  1 (4) 7  6  6  6  6
+    //   (5) 5  5  7  6  6  6  6
+    //    7  7  7  7  6 (6) 7  6
+    //    7  7  7 (7) 7  7  7  6
     regions: [
-      [1, 0, 0, 0, 0, 0, 0, 0],
-      [1, 1, 2, 2, 2, 0, 0, 0],
-      [3, 1, 2, 2, 2, 0, 2, 0],
-      [3, 1, 2, 2, 2, 2, 2, 2],
-      [3, 3, 3, 3, 4, 4, 4, 4],
-      [7, 7, 3, 3, 5, 6, 6, 4],
-      [7, 7, 5, 5, 5, 5, 6, 4],
-      [7, 7, 7, 7, 5, 6, 6, 6],
+      [1, 1, 1, 1, 0, 0, 0, 0],
+      [1, 1, 1, 4, 0, 3, 0, 2],
+      [1, 1, 1, 4, 0, 3, 0, 2],
+      [1, 1, 4, 4, 3, 3, 6, 2],
+      [5, 1, 4, 7, 6, 6, 6, 6],
+      [5, 5, 5, 7, 6, 6, 6, 6],
+      [7, 7, 7, 7, 6, 6, 7, 6],
+      [7, 7, 7, 7, 7, 7, 7, 6],
     ],
-    solution: [5, 1, 3, 0, 7, 4, 6, 2],
+    solution: [6, 1, 7, 4, 2, 0, 5, 3],
   },
 
   {
-    // Replaces the dev-only 9x9 that Phase 2.2 added for tap-target testing.
-    // Same purpose still applies — this is the board to load when checking
-    // touch ergonomics, since 9x9 leaves only 44.20px per cell on a 412px-wide
-    // phone and every smaller board passes that check trivially.
+    // Unchanged from Phase 4.2 — the survey in 5.3 reproduced this exact board
+    // and confirmed the label. Also the one to load when checking touch
+    // ergonomics: 9x9 leaves only 44.20px per cell on a 412px-wide phone.
+    //
+    // "impossible" here is measured, not rhetorical. The tiered solver reaches
+    // 16 deductions and then stalls with a unique solution still standing,
+    // which is the definition: it cannot be finished without trial and error.
     id: 'curated-9x9',
     size: 9,
     difficulty: 'impossible',
 
     // region sizes 4,5,6,8,9,10,11,14,14 — spread 10
-    //
+    // tools/solver.js: tier 4, stalls after 16 deductions
     //    0 (0) 0  2  2  2  2  1  1
     //    0  3  0  0  2  2  1  1 (1)
     //    3  3  0  0  2  2 (2) 2  1

@@ -388,6 +388,26 @@ function solve(puzzle, { maxTier = IMPLEMENTED_UP_TO, given = [] } = {}) {
 }
 
 /**
+ * The player-facing difficulty bucket for a rating.
+ *
+ * Not simply the tier name, for a reason Phase 5.2 measured: Tier 1 can never
+ * open a board, so "solved using nothing above Tier 1" never happens and an
+ * Easy bucket defined that way stays empty forever. Meanwhile Tier 3 swallows
+ * most solvable boards, so using it as a single bucket lumps a board needing
+ * one multi-region deduction together with one needing several.
+ *
+ * The split therefore uses *how much* Tier 3 reasoning a board demands, which
+ * Phase 5.3 sampled before choosing the boundary. Across 27 solvable generated
+ * boards: 7 needed no Tier 3 at all, 15 needed exactly one step, 5 needed two
+ * or more. Those are the three bands below, and stalls are the fourth.
+ */
+function difficultyOf(rating) {
+  if (!rating.solved) return rating.tier === 4 ? 'impossible' : null;
+  if (rating.tier <= 2) return 'easy';
+  return rating.log.filter((step) => step.tier === 3).length >= 2 ? 'hard' : 'medium';
+}
+
+/**
  * Count crown arrangements satisfying every rule. Brute force, deliberately —
  * this is the check the tiered solver is *not*, and Tier 4 is defined against
  * it.
@@ -472,7 +492,7 @@ function loadPuzzles() {
 }
 
 module.exports = {
-  createState, place, eliminate, solve, rate, progressFrom, countSolutions,
+  createState, place, eliminate, solve, rate, progressFrom, countSolutions, difficultyOf,
   TIERS, TIER_NAMES, IMPLEMENTED_UP_TO,
   // Exported individually so each can be tested in isolation. Run together
   // they cover for each other: disable the row rule and the region rule
@@ -495,9 +515,10 @@ if (require.main === module) {
   }
 
   console.log(`tier ladder implemented up to ${IMPLEMENTED_UP_TO}\n`);
-  console.log('id               size  placed  rating       tier-1 alone needs');
+  console.log('id               size  placed  tier  measured    declared    tier-1 alone needs');
   for (const puzzle of chosen) {
     const r = rate(puzzle);
+    const measured = difficultyOf(r);
 
     // How many crowns Tier 1 has to be *handed* before it can finish on its
     // own. A measure of how much of the solve that tier is not doing.
@@ -510,11 +531,14 @@ if (require.main === module) {
       }
     }
 
+    const agrees = measured === puzzle.difficulty;
     console.log(
       r.id.padEnd(17),
       String(r.size).padEnd(5),
       `${r.placed}/${r.size}`.padEnd(7),
-      r.label.padEnd(12),
+      String(r.tier ?? '-').padEnd(5),
+      String(measured ?? 'unratable').padEnd(11),
+      (puzzle.difficulty + (agrees ? '' : '  <-- MISMATCH')).padEnd(11),
       bootstrap + (r.contradiction ? `  (contradiction: ${r.contradiction})` : '')
     );
   }
