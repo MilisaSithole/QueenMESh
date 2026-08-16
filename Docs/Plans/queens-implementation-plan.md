@@ -168,14 +168,29 @@ Implement the four constraints as pure functions operating on the board state: o
 - Repeat the invalid/valid checks using the S Pen on the S25 Ultra, not just a mouse — this is the phase where a missed or doubled tap would actually produce a wrong rule-violation flag, so it's worth re-verifying input reliability here specifically.
 
 **Phase 4 — Puzzle data format & multiple puzzles**
-Formalize the puzzle representation (e.g., a JSON file: grid size + region-ID-per-cell array), move the hardcoded puzzle from Phase 1 into that format, and add 4–5 more hand-authored puzzles at increasing difficulty. Add a simple puzzle picker/next-puzzle button. At this point you have a genuinely playable game with curated content — a good milestone to share for feedback.
+Formalize the puzzle representation (grid size + region-ID-per-cell array), move the hardcoded puzzle from Phase 1 into that format, and add 4–5 more puzzles at increasing difficulty. Add a simple puzzle picker/next-puzzle button. At this point you have a genuinely playable game with curated content — a good milestone to share for feedback.
 
 Two carry-overs from earlier phases land here. The Phase 1.1 puzzle object was already shaped to this schema, so moving it should be a file move rather than a rewrite — if it isn't, that's a sign the schema drifted and is worth reconciling now. And the **dev-only 9×9 added in Phase 2.2** for the tap-target check gets promoted into the real puzzle set (or replaced by a better-authored one) and its URL-parameter escape hatch removed in favour of the actual picker.
+
+*Decisions settled up front:*
+
+- **Puzzle data stays a JS object literal in `puzzles.js`, not a `.json` file** — despite the original wording of this phase. `fetch()` is blocked under `file://`, so real JSON would mean the game could no longer be run by opening `index.html`, which is the zero-setup property the tech-stack section chose vanilla JS to get. The file is already shaped exactly like the JSON schema, so nothing is lost but the extension: Phase 5's generator emits this format directly, and Phase 5.5's Python side can read it with a trivial parse if it ever needs to.
+- **Uniqueness is verified offline, not at load.** The runtime keeps the cheap structural checks (`describeProblem`) that catch a malformed board. Confirming a puzzle has exactly one solution means enumerating every valid crown arrangement — 47,622 of them at 9×9 — which is wasted work on every page load for data that never changes. The test suite already does this for every entry in `PUZZLES`, so a bad board fails before it can ship rather than being caught by the player's browser.
+- **"Hand-authored" is optimistic, and this phase quietly borrows Phase 5's hardest machinery.** Phase 2.2 established that growing regions at random essentially never yields a unique solution above 5×5. Every board added here needs the grow-then-refine loop described in Phase 5. The honest description is generated-then-curated: the generator proposes, a human keeps the ones that look and feel right.
+- **Difficulty labels in this phase are guesses.** The technique-tier solver that measures difficulty properly is Phase 5, so anything labelled here is by feel and should be expected to get re-bucketed later. Pulling tier scoring forward would roughly double this phase; better to let Phase 5 correct the labels than to block on them.
+
+*Sub-phases (one commit each):*
+
+- **Phase 4.1 — Schema, loader, loud failure.** Formalise the format and document it in one place, migrate both existing puzzles onto it, and strengthen validation so a malformed board fails visibly. Should be small if the schema has not drifted — and if it has, that discovery is the point.
+- **Phase 4.2 — The puzzle set.** Generate, verify and curate 4–5 boards spanning the size range, using the grow-then-refine loop. No new UI. Everything in the test suite that iterates `PUZZLES` covers these automatically, so each new board arrives with uniqueness, contiguity and rendering already checked.
+- **Phase 4.3 — Picker and reset.** The first real UI chrome beyond the board, which means it inherits the whole Phase 2 burden: pointer-event handling, ~44px targets, and no reliance on `:hover`. Switching puzzles must fully reset board state — crowns, marks, violation flags and the solved state — and `?puzzle=` retires here in favour of the picker.
 
 *Test before moving on:*
 - Load each hand-authored puzzle individually and confirm correct rendering (grid size, region colors) and that you can actually solve it.
 - Switch between puzzles via the picker and confirm the board fully resets — no leftover crowns or X marks from the previous puzzle.
-- Deliberately break a puzzle JSON (typo a region ID) and confirm it fails loudly/visibly rather than silently rendering a broken board — catching data bugs here saves time once Phase 5's generator is producing puzzles automatically.
+- Deliberately break a puzzle (typo a region ID) and confirm it fails loudly/visibly rather than silently rendering a broken board — catching data bugs here saves time once Phase 5's generator is producing puzzles automatically.
+- Switch puzzles mid-solve, with crowns placed *and a violation showing*, and confirm the new board arrives completely clean — the violation flags and solved state are separate from cell state and are the easy ones to forget to reset.
+- Run the picker through the Phase-2 input check (mouse, finger, S Pen), since it is the first control outside the board and inherits none of the board's testing by default.
 
 **Phase 5 — Puzzle generator**
 This is the hard, interesting part, and worth its own phase rather than bolting it onto Phase 4. Approach: (a) generate a random valid solution — N crown positions satisfying row/column/region/adjacency constraints — by backtracking; (b) grow color regions outward from each crown via randomized flood-fill until every cell is assigned a region; (c) get the puzzle to a *unique* solution — see the warning below, because the obvious way does not work; (d) score difficulty using the technique-tier method below, so puzzles can be sorted into buckets rather than hand-labeled by feel.
@@ -209,13 +224,17 @@ Grid size is still worth varying as a coarse secondary lever — Easy at 6×6 up
 - Confirm at least one generated puzzle lands in each of the four buckets — if "Impossible" never comes up after many attempts, the tiering thresholds likely need adjusting.
 
 **Phase 5.5 — RL-ready environment (AlphaZero playground)**
-This is an optional track that runs in parallel to Phases 6–9, not before them — build it whenever, as soon as Phase 3 (rules) and Phase 5 (generator + puzzle format) exist. The web game and the RL environment never need to talk to each other at runtime; they only need to agree on the same puzzle JSON schema and the same rules, since all training happens locally on your machine rather than against the live site. That's also why no network API is needed here — "API" in this section means a clean importable interface, not an HTTP endpoint.
+This is an optional track that runs in parallel to the phases after it, not before them. **Its real prerequisites are Phase 3 (rules) and Phase 4 (puzzle schema) — not Phase 5, as this section originally said.** The generator is not needed: what the environment has to agree with the web game on is the rules and the puzzle format, and both of those exist as soon as Phase 4 lands. Phase 5 only matters if you want a large training corpus rather than a handful of fixture puzzles, which is a scaling concern rather than a blocker.
+
+Two things make the port cheaper than it looks. `rules.js` was deliberately written pure, DOM-free and with the cell-state constants alongside the constraints, precisely so it could be hand-translated with nothing browser-shaped to unpick. And puzzle data lives in a JS object literal shaped exactly like the JSON schema, so the Python side can read the same file with a trivial parse and stay in lockstep with whatever the site is serving.
+
+The web game and the RL environment never need to talk to each other at runtime; they only need to agree on the same puzzle schema and the same rules, since all training happens locally on your machine rather than against the live site. That's also why no network API is needed here — "API" in this section means a clean importable interface, not an HTTP endpoint.
 
 One framing note worth having going in: AlphaZero itself is built for adversarial two-player self-play. Queens is single-player, so the honest description is "AlphaZero-*style*" — closer to how the same policy-network + value-network + MCTS recipe has been adapted to single-agent combinatorial puzzles (Rubik's Cube-solving systems like DeepCube are the closest precedent). A policy network proposes the next cell to place a crown in, a value network estimates how solvable the resulting position still is, and MCTS uses both to search a few moves ahead before committing. Knowing this up front avoids designing the environment around the wrong shape of algorithm later.
 
 Concretely, this phase adds:
 
-- A standalone Python package (e.g. `env/queenmesh_env/`) with zero dependency on the browser/JS code — the only thing it shares with the web game is the Phase-4 puzzle JSON schema, so a given puzzle is identical on both sides.
+- A standalone Python package (e.g. `env/queenmesh_env/`) with zero dependency on the browser/JS code — the only thing it shares with the web game is the Phase-4 puzzle schema, so a given puzzle is identical on both sides.
 - `rules.py` — a direct Python port of the Phase 3 constraint checks (row / column / region / adjacency). The logic is simple enough to hand-translate; keep it pure and side-effect-free so it's cheap to call thousands of times inside an MCTS inner loop and trivial to unit test.
 - `env.py` — a Gymnasium-style environment class, so it speaks a convention that existing RL tooling already understands:
   - `reset() -> observation`
