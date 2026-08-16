@@ -21,7 +21,10 @@ const path = require('path');
 const { execFileSync } = require('child_process');
 
 const ROOT = path.join(__dirname, '..');
-const FILES = ['main.js', 'style.css', 'puzzles.js', 'index.html', 'rules.js'];
+const FILES = [
+  'main.js', 'style.css', 'puzzles.js', 'index.html', 'rules.js',
+  'tools/solver.js',
+];
 const backup = Object.fromEntries(
   FILES.map((f) => [f, fs.readFileSync(path.join(ROOT, f), 'utf8')])
 );
@@ -248,6 +251,36 @@ const mutations = [
     (s) => s.replace('min-height: 44px;', 'min-height: 28px;')],
   ['style.css', 'the active option is distinguished by nothing',
     (s) => s.replace(/\.picker-option\[data-active\] \{[^}]*\}/, '.picker-option[data-active] { }')],
+
+  // Phase 5.1 — the tier solver
+  ['tools/solver.js', 'placing a crown stops eliminating its row and column',
+    (s) => s.replace(
+      'if (i !== col) eliminate(state, row, i);\n    if (i !== row) eliminate(state, i, col);', '')],
+  ['tools/solver.js', 'placing a crown stops eliminating its region',
+    (s) => s.replace(/for \(const \[r, c\] of cellsOfRegion\(state, region\)\) \{[\s\S]*?\n  \}/, '')],
+  ['tools/solver.js', 'adjacency is no longer propagated',
+    (s) => s.replace('if (r === row && c === col) continue;\n      eliminate(state, r, c);',
+      'if (r === row && c === col) continue;')],
+  ['tools/solver.js', 'a group with two options is treated as forced',
+    (s) => s.replace('if (options.length > 1) return null;', 'if (options.length > 2) return null;')],
+  ['tools/solver.js', 'the row rule stops firing',
+    (s) => s.replace('function onlyCellInRow(state) {', 'function onlyCellInRow(state) {\n  return null;')],
+  ['tools/solver.js', 'the column rule stops firing',
+    (s) => s.replace('function onlyCellInColumn(state) {', 'function onlyCellInColumn(state) {\n  return null;')],
+  ['tools/solver.js', 'the region rule stops firing',
+    (s) => s.replace('function onlyCellInRegion(state) {', 'function onlyCellInRegion(state) {\n  return null;')],
+  ['tools/solver.js', 'a group that already has a crown is re-forced',
+    (s) => s.replace('if (hasCrown(state, cells)) return null;', '')],
+  ['tools/solver.js', 'contradictions are swallowed',
+    (s) => s.replace('state.contradiction = `${describe} has no legal cell left`;', '')],
+  ['tools/solver.js', 'given crowns are ignored',
+    (s) => s.replace('for (const [row, col] of given) place(state, row, col);', '')],
+  ['tools/solver.js', 'deduced counts the crowns it was handed',
+    (s) => s.replace('deduced: result.placed - given.length', 'deduced: result.placed')],
+  ['tools/solver.js', 'an unsolved board is still given a tier',
+    (s) => s.replace('tier: result.solved ? result.highestTier : null,', 'tier: result.highestTier,')],
+  ['tools/solver.js', 'the deduction log records no reasons',
+    (s) => s.replace('reason: deduction.reason', "reason: ''")],
 ];
 
 const restore = () => {
