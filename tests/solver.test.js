@@ -17,7 +17,7 @@ const { suite, test, note, eq, ok } = require('./harness');
 const { ROOT } = require('./dom-shim');
 const {
   solve, rate, progressFrom, createState, place, eliminate, rules, countSolutions, difficultyOf,
-} = require('../tools/solver');
+} = require('../solver');
 const { geometry5x5, tierOne4x4 } = require('./fixtures');
 
 const PUZZLES = new Function(

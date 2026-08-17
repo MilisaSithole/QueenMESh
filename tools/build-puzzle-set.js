@@ -11,8 +11,8 @@
 // So difficulty is *measured here and selected for*, rather than guessed at
 // afterwards. A board's label is the bucket its solve path actually earned.
 
-const { candidates } = require('./generate-puzzle');
-const { rate, difficultyOf } = require('./solver');
+const { candidates } = require('../generator');
+const { rate, difficultyOf } = require('../solver');
 
 const BUCKETS = ['easy', 'medium', 'hard', 'impossible'];
 

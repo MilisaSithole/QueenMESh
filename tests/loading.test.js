@@ -36,8 +36,10 @@ test('an unrecognised id falls back but says so, rather than failing silently', 
 });
 
 test('other query parameters are ignored', () => {
+  // A board still loads and no warning is raised. Which board is deliberately
+  // not asserted: with no ?puzzle= the app now opens on a random one.
   const app = loadApp({ search: '?utm_source=x&debug=1' });
-  eq(app.size, 5);
+  ok(app.size >= 4, `expected a board, got size ${app.size}`);
   eq(app.status.dataset.state, undefined, 'no spurious warning');
 });
 

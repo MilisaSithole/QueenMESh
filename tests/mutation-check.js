@@ -28,7 +28,7 @@ const { execFileSync } = require('child_process');
 const ROOT = path.join(__dirname, '..');
 const FILES = [
   'main.js', 'style.css', 'puzzles.js', 'index.html', 'rules.js',
-  'tools/solver.js', 'tools/generate-puzzle.js',
+  'solver.js', 'generator.js', 'puzzle-cache.js', 'worker.js',
 ];
 const SAFE_DIR = path.join(__dirname, '.mutation-backup');
 
@@ -53,9 +53,16 @@ function recoverFromInterruptedRun() {
 
 recoverFromInterruptedRun();
 
-const backup = Object.fromEntries(
-  FILES.map((f) => [f, fs.readFileSync(path.join(ROOT, f), 'utf8')])
-);
+// Read as LF regardless of what is on disk. Mutation patterns are written with
+// newline escapes, and a file checked out with CRLF silently stops matching any
+// pattern that spans a line — which shows up as a wall of "pattern no longer
+// matches" and reads like the patterns rotted, rather than the line endings
+// having changed underneath them. Git normalises on commit, so writing LF back
+// is harmless.
+const readSource = (file) =>
+  fs.readFileSync(path.join(ROOT, file), 'utf8').replace(/\r\n/g, '\n');
+
+const backup = Object.fromEntries(FILES.map((f) => [f, readSource(f)]));
 
 fs.mkdirSync(SAFE_DIR, { recursive: true });
 for (const [file, contents] of Object.entries(backup)) {
@@ -121,11 +128,11 @@ const mutations = [
   // Phase 5.3 — difficulty labels are claims the solver checks
   ['puzzles.js', 'a difficulty label no longer matches the measured difficulty',
     (s) => s.replace("difficulty: 'medium',", "difficulty: 'easy',")],
-  ['tools/solver.js', 'every solvable board is bucketed easy',
+  ['solver.js', 'every solvable board is bucketed easy',
     (s) => s.replace("if (rating.tier <= 2) return 'easy';", "return 'easy';")],
-  ['tools/solver.js', 'the hard/medium boundary moves',
+  ['solver.js', 'the hard/medium boundary moves',
     (s) => s.replace("=== 3).length >= 2 ? 'hard' : 'medium'", "=== 3).length >= 9 ? 'hard' : 'medium'")],
-  ['tools/solver.js', 'a stalled board is bucketed as merely hard',
+  ['solver.js', 'a stalled board is bucketed as merely hard',
     (s) => s.replace("if (!rating.solved) return rating.tier === 4 ? 'impossible' : null;",
       "if (!rating.solved) return 'hard';")],
 
@@ -148,10 +155,13 @@ const mutations = [
     (s) => s.replace('id="glyph-mark"', 'id="glyph-cross"')],
   ['index.html', 'the rules.js script tag goes missing',
     (s) => s.replace('  <script src="rules.js"></script>\n', '')],
+  // Swapping rules.js and solver.js proves nothing — neither reads the other
+  // at load time, so the order genuinely does not matter between them. main.js
+  // does read PUZZLES while loading, so moving it first is a real defect.
   ['index.html', 'scripts load in the wrong order',
     (s) => s.replace(
-      '  <script src="rules.js"></script>\n  <script src="puzzles.js"></script>\n  <script src="main.js"></script>',
-      '  <script src="main.js"></script>\n  <script src="rules.js"></script>\n  <script src="puzzles.js"></script>')],
+      '  <script src="puzzles.js"></script>\n  <script src="main.js"></script>',
+      '  <script src="main.js"></script>\n  <script src="puzzles.js"></script>')],
   // Moves the crown's base bar, which shifts the bounding box. Nudging a point
   // that is not an extreme leaves the box unchanged and proves nothing.
   ['index.html', 'the crown glyph drifts off-centre',
@@ -283,16 +293,16 @@ const mutations = [
   ['main.js', 'the active option is never marked',
     (s) => s.replace(/function markActivePuzzle\(\) \{/, 'function markActivePuzzle() {\n  return;')],
   ['main.js', 'every option is marked active, not just the current one',
-    (s) => s.replace("const active = button.dataset.puzzleId === puzzle.id;", 'const active = true;')],
+    (s) => s.replace('const active = button.dataset.difficulty === puzzle.difficulty;',
+      'const active = true;')],
   ['main.js', 'the picker is never built',
-    (s) => s.replace('buildPicker(PUZZLES);', '')],
+    (s) => s.replace('  buildPicker();', '')],
   ['main.js', 'picker buttons do nothing when clicked',
     (s) => s.replace(/button\.addEventListener\('click', \(\) => \{[\s\S]*?\}\);/, '')],
   ['main.js', 'picker options are divs rather than buttons',
     (s) => s.replace("document.createElement('button')", "document.createElement('div')")],
-  ['main.js', 'options are labelled by difficulty, presenting a guess as measured',
-    (s) => s.replace('button.textContent = `${entry.size}×${entry.size}`;',
-      'button.textContent = entry.difficulty;')],
+  ['main.js', 'picker options lose their labels',
+    (s) => s.replace('button.textContent = difficulty;', "button.textContent = '';")],
   ['main.js', 'options lose their accessible label',
     (s) => s.replace(/button\.setAttribute\('aria-label'[^;]*;/, '')],
   ['main.js', 'a stale URL warning survives choosing a board',
@@ -303,65 +313,65 @@ const mutations = [
     (s) => s.replace(/\.picker-option\[data-active\] \{[^}]*\}/, '.picker-option[data-active] { }')],
 
   // Phase 5.1 — the tier solver
-  ['tools/solver.js', 'placing a crown stops eliminating its row and column',
+  ['solver.js', 'placing a crown stops eliminating its row and column',
     (s) => s.replace(
       'if (i !== col) eliminate(state, row, i);\n    if (i !== row) eliminate(state, i, col);', '')],
-  ['tools/solver.js', 'placing a crown stops eliminating its region',
+  ['solver.js', 'placing a crown stops eliminating its region',
     (s) => s.replace(/for \(const \[r, c\] of cellsOfRegion\(state, region\)\) \{[\s\S]*?\n  \}/, '')],
-  ['tools/solver.js', 'adjacency is no longer propagated',
+  ['solver.js', 'adjacency is no longer propagated',
     (s) => s.replace('if (r === row && c === col) continue;\n      eliminate(state, r, c);',
       'if (r === row && c === col) continue;')],
-  ['tools/solver.js', 'a group with two options is treated as forced',
+  ['solver.js', 'a group with two options is treated as forced',
     (s) => s.replace('if (options.length > 1) return null;', 'if (options.length > 2) return null;')],
-  ['tools/solver.js', 'the row rule stops firing',
+  ['solver.js', 'the row rule stops firing',
     (s) => s.replace('function onlyCellInRow(state) {', 'function onlyCellInRow(state) {\n  return null;')],
-  ['tools/solver.js', 'the column rule stops firing',
+  ['solver.js', 'the column rule stops firing',
     (s) => s.replace('function onlyCellInColumn(state) {', 'function onlyCellInColumn(state) {\n  return null;')],
-  ['tools/solver.js', 'the region rule stops firing',
+  ['solver.js', 'the region rule stops firing',
     (s) => s.replace('function onlyCellInRegion(state) {', 'function onlyCellInRegion(state) {\n  return null;')],
-  ['tools/solver.js', 'a group that already has a crown is re-forced',
+  ['solver.js', 'a group that already has a crown is re-forced',
     (s) => s.replace('if (hasCrown(state, cells)) return null;', '')],
-  ['tools/solver.js', 'contradictions are swallowed',
+  ['solver.js', 'contradictions are swallowed',
     (s) => s.replace('state.contradiction = `${describe} has no legal cell left`;', '')],
-  ['tools/solver.js', 'given crowns are ignored',
+  ['solver.js', 'given crowns are ignored',
     (s) => s.replace('for (const [row, col] of given) place(state, row, col);', '')],
-  ['tools/solver.js', 'deduced counts the crowns it was handed',
+  ['solver.js', 'deduced counts the crowns it was handed',
     (s) => s.replace('deduced: result.placed - given.length', 'deduced: result.placed')],
-  ['tools/solver.js', 'a broken board is filed under a difficulty rather than flagged',
+  ['solver.js', 'a broken board is filed under a difficulty rather than flagged',
     (s) => s.replace('tier: unique ? 4 : null,', 'tier: 4,')],
-  ['tools/solver.js', 'the deduction log records no reasons',
+  ['solver.js', 'the deduction log records no reasons',
     (s) => s.replace('reason: deduction.reason', "reason: ''")],
 
   // Phase 5.2 — locked sets, starvation, and Tier 4
-  ['tools/solver.js', 'a cell counts as adjacent to itself again',
+  ['solver.js', 'a cell counts as adjacent to itself again',
     (s) => s.replace('!(a[0] === b[0] && a[1] === b[1]) &&\n    ', '')],
-  ['tools/solver.js', 'locked sets fire when the groups span one line too many',
+  ['solver.js', 'locked sets fire when the groups span one line too many',
     (s) => s.replace('if (lines.size !== k) continue;',
       'if (lines.size !== k && lines.size !== k + 1) continue;')],
-  ['tools/solver.js', 'a locked set eliminates its own cells too',
+  ['solver.js', 'a locked set eliminates its own cells too',
     (s) => s.replace("if (owned.has(`${row},${col}`)) continue;", '')],
-  ['tools/solver.js', 'the k=1 locked-set rule stops firing',
+  ['solver.js', 'the k=1 locked-set rule stops firing',
     (s) => s.replace('rules: [lockedSetRule(1), starvesAGroup]', 'rules: [starvesAGroup]')],
-  ['tools/solver.js', 'the starvation rule stops firing',
+  ['solver.js', 'the starvation rule stops firing',
     (s) => s.replace('function starvesAGroup(state) {', 'function starvesAGroup(state) {\n  return null;')],
-  ['tools/solver.js', 'Tier 3 stops firing',
+  ['solver.js', 'Tier 3 stops firing',
     (s) => s.replace('rules: [lockedSetRule(2), lockedSetRule(3)]', 'rules: []')],
-  ['tools/solver.js', 'a stall is called impossible without checking uniqueness',
+  ['solver.js', 'a stall is called impossible without checking uniqueness',
     (s) => s.replace('const solutions = countSolutions(puzzle, 2);', 'const solutions = 1;')],
-  ['tools/solver.js', 'the brute-force count ignores the region constraint',
+  ['solver.js', 'the brute-force count ignores the region constraint',
     (s) => s.replace('if (usedRegion.has(region)) continue;', '')],
-  ['tools/solver.js', 'the brute-force count ignores adjacency',
+  ['solver.js', 'the brute-force count ignores adjacency',
     (s) => s.replace('if (row > 0 && Math.abs(col - cols[row - 1]) < 2) continue;\n      const region',
       'const region')],
 
   // Phase 6.1 — the generator, and the optimisation inside it
-  ['tools/generate-puzzle.js', 'the solution bitmask stops distinguishing regions',
+  ['generator.js', 'the solution bitmask stops distinguishing regions',
     (s) => s.replace('mask |= 1 << regions[row][cols[row]];', 'mask |= regions[row][cols[row]];')],
-  ['tools/generate-puzzle.js', 'the incremental index never refreshes',
+  ['generator.js', 'the incremental index never refreshes',
     (s) => s.replace('for (const i of byCell[row][col]) {', 'for (const i of []) {')],
-  ['tools/generate-puzzle.js', 'the index is built over the wrong cells',
+  ['generator.js', 'the index is built over the wrong cells',
     (s) => s.replace('byCell[row][cols[row]].push(i);', 'byCell[cols[row]][row].push(i);')],
-  ['tools/generate-puzzle.js', 'the index count drifts on update',
+  ['generator.js', 'the index count drifts on update',
     (s) => s.replace('if (next !== valid[i]) { count += next - valid[i]; valid[i] = next; }',
       'valid[i] = next;')],
   // Three mutations were tried here and removed rather than papered over:
@@ -376,13 +386,47 @@ const mutations = [
   //     refinement never reassigns a target crown cell, so the target cannot
   //     stop being a solution. Verified over 40 refined boards. The guard stays
   //     in the source as protection against a future change to that invariant.
-  ['tools/generate-puzzle.js', 'refinement stops preserving region contiguity',
+  ['generator.js', 'refinement stops preserving region contiguity',
     (s) => s.replace('if (index.count < solutions.length && isContiguous(size, regions, from)) {',
       'if (index.count < solutions.length) {')],
-  ['tools/generate-puzzle.js', 'lone-cell regions are allowed through',
+  ['generator.js', 'lone-cell regions are allowed through',
     (s) => s.replace('if (Math.min(...sizes) < smallest || Math.max(...sizes) > largest) continue;', '')],
-  ['tools/generate-puzzle.js', 'generation ignores the seed, so every board is the same',
+  ['generator.js', 'generation ignores the seed, so every board is the same',
     (s) => s.replace('const rand = mulberry32(seed * 7919 + size);', 'const rand = mulberry32(size);')],
+
+  // Phase 6.2 — background generation, cache, fresh board per visit
+  ['main.js', 'the opening board is fixed again',
+    (s) => s.replace('const opening = PUZZLES[Math.floor(Math.random() * PUZZLES.length)];',
+      'const opening = PUZZLES[0];')],
+  ['main.js', 'a deep link no longer wins over the random opening',
+    (s) => s.replace("if (selected.notice || location.search.includes('puzzle=')) {", 'if (false) {')],
+  ['main.js', 'the picker offers only one difficulty',
+    (s) => s.replace('cache.difficulties.map((difficulty) =>', "['easy'].map((difficulty) =>")],
+  ['main.js', 'picker buttons stop reporting whether boards are ready',
+    (s) => s.replace("button.dataset.stocked = held > 0 ? 'true' : 'false';", '')],
+  ['main.js', 'choosing a difficulty never takes from the cache',
+    (s) => s.replace('const fresh = cache.take(difficulty);', 'const fresh = null;')],
+  ['main.js', 'an empty bucket renders nothing instead of falling back',
+    (s) => s.replace('const fallback = PUZZLES.filter((p) => p.difficulty === difficulty);',
+      'const fallback = [];')],
+  ['main.js', 'background generation never starts',
+    (s) => s.replace('  cache.start();', '  // cache.start();')],
+  ['puzzle-cache.js', 'take() hands out a board without removing it',
+    (s) => s.replace('const [puzzle] = held.splice(index, 1);', 'const puzzle = held[index];')],
+  ['puzzle-cache.js', 'the cache accepts boards of the wrong difficulty',
+    (s) => s.replace("if (seen.has(puzzle.id) || !stock.has(puzzle.difficulty)) return;",
+      'if (seen.has(puzzle.id)) return;')],
+  ['puzzle-cache.js', 'duplicate boards pile up in the cache',
+    (s) => s.replace('    seen.add(puzzle.id);', '')],
+  ['puzzle-cache.js', 'the cache never reports a bucket as needing more',
+    (s) => s.replace('if (held >= CACHE_TARGET) continue;', 'continue;')],
+  ['puzzle-cache.js', 'main-thread generation stops filtering by difficulty',
+    (s) => s.replace("if (measured !== need.difficulty) continue;", '')],
+  ['puzzle-cache.js', 'main-thread generation attempts the expensive sizes',
+    (s) => s.replace('const size = pickSize(need.difficulty, CHEAP_SIZES);',
+      'const size = pickSize(need.difficulty);')],
+  ['puzzle-cache.js', 'taking a board does not trigger a top-up',
+    (s) => s.replace('      schedule(fill);\n      return puzzle;', '      return puzzle;')],
 ];
 
 const restore = () => {
@@ -405,7 +449,7 @@ try {
   for (const [file, name, mutate] of mutations) {
     restore();
     const target = path.join(ROOT, file);
-    const before = fs.readFileSync(target, 'utf8');
+    const before = readSource(file);
     const after = mutate(before);
 
     if (after === before) {
@@ -416,17 +460,31 @@ try {
 
     fs.writeFileSync(target, after);
 
+    // A timeout, because some defects make the suite hang rather than fail —
+    // an unbounded `while (take())` against a take() that stops removing, for
+    // instance. Without this the run stalls indefinitely on one mutation and
+    // reports nothing at all, which is the least useful way to catch a bug.
+    // The fast suite finishes in about a second, so 60 is generous.
     let suiteFailed = false;
+    let hung = false;
     try {
       execFileSync('node', [path.join(ROOT, 'tests', 'run.js')], {
         stdio: 'pipe',
+        timeout: 60_000,
         env: { ...process.env, QUEENS_FAST: '1' },
       });
-    } catch {
+    } catch (error) {
       suiteFailed = true;
+      hung = error.signal === 'SIGTERM' || error.code === 'ETIMEDOUT';
     }
 
-    if (suiteFailed) { console.log('  caught   ' + name); caught++; }
+    if (hung) {
+      // Counted as caught, but flagged: a mutation the suite only survives by
+      // never finishing means a test loops forever on it, and that test wants
+      // a bound so the defect surfaces as a failure instead.
+      console.log('  caught   ' + name + '  (suite HUNG — bound the loop that spins on this)');
+      caught++;
+    } else if (suiteFailed) { console.log('  caught   ' + name); caught++; }
     else { console.log('  MISSED   ' + name); missed.push(name); }
   }
 } finally {

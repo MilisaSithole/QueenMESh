@@ -26,12 +26,40 @@ suite('page — every script is loaded, in a workable order');
 {
   const scripts = [...html.matchAll(/<script src="([^"]+)"><\/script>/g)].map((m) => m[1]);
 
+  // worker.js is a root script that index.html deliberately does *not* load —
+  // it is a worker entry point, started with new Worker() instead. Excluded by
+  // name rather than by pattern, so a genuinely forgotten script still fails.
+  const WORKER_ENTRY_POINTS = ['worker.js'];
+
   test('index.html loads every JavaScript file in the project root', () => {
     const onDisk = fs
       .readdirSync(ROOT)
-      .filter((f) => f.endsWith('.js'))
+      .filter((f) => f.endsWith('.js') && !WORKER_ENTRY_POINTS.includes(f))
       .sort();
     eq(scripts.slice().sort(), onDisk, 'scripts referenced vs files present');
+  });
+
+  test('the worker entry point is reachable from somewhere', () => {
+    // Excluding it above would otherwise let it rot: unreferenced, untested,
+    // and quietly dead while still looking like part of the app.
+    const referenced = fs
+      .readdirSync(ROOT)
+      .filter((f) => f.endsWith('.js'))
+      .some((f) => fs.readFileSync(path.join(ROOT, f), 'utf8').includes("Worker('worker.js')"));
+    ok(referenced, 'nothing constructs the worker');
+  });
+
+  test("the worker's own imports all exist and are loaded by the page too", () => {
+    // importScripts paths are strings the bundler-free setup cannot check.
+    // Rename solver.js and the page keeps working while the worker dies
+    // silently, taking background generation with it.
+    const source = fs.readFileSync(path.join(ROOT, 'worker.js'), 'utf8');
+    const imported = [...source.matchAll(/importScripts\(([^)]*)\)/g)]
+      .flatMap((m) => [...m[1].matchAll(/'([^']+)'/g)].map((q) => q[1]));
+
+    ok(imported.length > 0, 'no importScripts found — check the pattern');
+    eq(imported.filter((f) => !fs.existsSync(path.join(ROOT, f))), [], 'missing files');
+    eq(imported.filter((f) => !scripts.includes(f)), [], 'imported but not loaded by index.html');
   });
 
   test('every referenced script actually exists', () => {

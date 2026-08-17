@@ -9,7 +9,7 @@
 // scaffolding size — the shipping range is 6x6 to 9x9 — so no dimension, loop
 // bound, or palette entry may assume 5.
 
-const BUILD_MARKER = 'build 016';
+const BUILD_MARKER = 'build 018';
 
 // EMPTY / MARK / CROWN come from rules.js, which owns the shared model. The
 // names below are presentation only.
@@ -361,47 +361,131 @@ function startPuzzle(next) {
 }
 
 /**
- * Build the picker once. Real <button> elements rather than styled divs: they
- * come with keyboard activation, focus handling and the right role for free,
- * which is most of what Phase 9's accessibility pass would otherwise have to
- * retrofit.
- *
- * Labelled by size rather than difficulty. Size is a fact; the difficulty
- * labels are provisional guesses that Phase 5 will revise, and putting a guess
- * on the button makes it look measured.
+ * Which board the player has asked for. Both halves matter: choosing "easy"
+ * and getting a different size each refresh is not a choice, it is a shuffle.
  */
-function buildPicker(puzzles) {
-  const buttons = puzzles.map((entry) => {
-    const button = document.createElement('button');
-    button.type = 'button';
-    button.className = 'picker-option';
-    button.dataset.puzzleId = entry.id;
-    button.textContent = `${entry.size}×${entry.size}`;
-    // The size alone is terse; the difficulty belongs somewhere a screen
-    // reader and a long-press tooltip can both reach.
-    button.title = `${entry.id} — ${entry.difficulty}`;
-    button.setAttribute('aria-label', `${entry.size} by ${entry.size}, ${entry.difficulty}`);
+let choice = { size: 5, difficulty: 'easy' };
 
-    // `click` rather than pointer events, deliberately. The board needed raw
-    // pointer handling because it distinguishes taps from drags; a button does
-    // not, and `click` already unifies mouse, touch, pen *and* keyboard.
-    button.addEventListener('click', () => {
-      notice = null;
-      startPuzzle(entry);
-    });
-    return button;
-  });
+const CHOICE_KEY = 'queenmesh:choice';
 
-  pickerEl.replaceChildren(...buttons);
+/**
+ * Remember the selection across reloads.
+ *
+ * Phase 7 owns persistence properly, but a picker that forgets itself on every
+ * refresh is not a picker — and refreshing is exactly how a new board is
+ * requested, so this is the one setting that cannot wait. Guarded because
+ * localStorage throws outright in some privacy modes.
+ */
+function rememberChoice() {
+  try {
+    localStorage.setItem(CHOICE_KEY, JSON.stringify(choice));
+  } catch {
+    // Not worth reporting: the game works, it just forgets.
+  }
+}
+
+function recallChoice() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(CHOICE_KEY) || 'null');
+    if (!saved) return;
+    if (cache.sizes.includes(saved.size) && cache.difficulties.includes(saved.difficulty)) {
+      choice = { size: saved.size, difficulty: saved.difficulty };
+    }
+  } catch {
+    // Corrupt or unavailable — the default stands.
+  }
+}
+
+/**
+ * Two rows of real <button> elements: size, then difficulty. Buttons rather
+ * than styled divs because they bring keyboard activation, focus handling and
+ * the right role for free.
+ *
+ * Both axes are offered because both were being decided for the player before:
+ * the difficulty-only version picked a size itself, so asking for "hard" could
+ * hand back a 7x7 one moment and a 9x9 the next.
+ */
+function buildPicker() {
+  const row = (label, values, key, render) => {
+    const group = document.createElement('div');
+    group.className = 'picker-row';
+    group.setAttribute('role', 'group');
+    group.setAttribute('aria-label', label);
+
+    for (const value of values) {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'picker-option';
+      button.dataset[key] = value;
+      button.textContent = render(value);
+      button.setAttribute('aria-label', `${label}: ${render(value)}`);
+
+      // `click`, not pointer events. The board needs raw pointer handling
+      // because it distinguishes taps from drags; a button does not, and
+      // `click` already covers mouse, touch, pen and keyboard.
+      button.addEventListener('click', () => {
+        notice = null;
+        choice = { ...choice, [key]: value };
+        rememberChoice();
+        cache.select(choice.size, choice.difficulty);
+        loadNewPuzzle();
+      });
+      group.append(button);
+    }
+    return group;
+  };
+
+  pickerEl.replaceChildren(
+    row('Size', cache.sizes, 'size', (n) => `${n}×${n}`),
+    row('Difficulty', cache.difficulties, 'difficulty', (d) => d)
+  );
 }
 
 function markActivePuzzle() {
-  for (const button of pickerEl.children) {
-    const active = button.dataset.puzzleId === puzzle.id;
-    button.setAttribute('aria-pressed', active ? 'true' : 'false');
-    if (active) button.dataset.active = 'true';
-    else delete button.dataset.active;
+  for (const group of pickerEl.children) {
+    for (const button of group.children) {
+      const active =
+        Number(button.dataset.size) === choice.size ||
+        button.dataset.difficulty === choice.difficulty;
+      button.setAttribute('aria-pressed', active ? 'true' : 'false');
+      if (active) button.dataset.active = 'true';
+      else delete button.dataset.active;
+    }
   }
+}
+
+/**
+ * Start a fresh board matching the current choice.
+ *
+ * Three sources, in order: the cache, then a baked-in board of exactly that
+ * size and difficulty, then nothing — in which case the status says it is
+ * still generating and the board arrives when it does. Substituting a board of
+ * some other size or difficulty was the previous behaviour and it is worse than
+ * waiting: it silently ignores what was asked for.
+ */
+function loadNewPuzzle() {
+  const { size, difficulty } = choice;
+
+  const fresh = cache.take(size, difficulty);
+  if (fresh) {
+    startPuzzle(fresh);
+    return;
+  }
+
+  const seeded = PUZZLES.filter((p) => p.size === size && p.difficulty === difficulty);
+  if (seeded.length) {
+    startPuzzle(seeded[Math.floor(Math.random() * seeded.length)]);
+    return;
+  }
+
+  awaitingBoard = true;
+  notice = `generating a ${size}×${size} ${difficulty} board…`;
+  if (puzzle) updateStatus(false);
+  else {
+    statusEl.textContent = notice;
+    statusEl.dataset.state = 'warning';
+  }
+  markActivePuzzle();
 }
 
 // The set is checked before anything is selected from it: with a duplicate id,
@@ -410,6 +494,48 @@ function markActivePuzzle() {
 const selected = selectPuzzle(PUZZLES, location.search);
 notice = selected.notice;
 const problem = describePuzzleSetProblem(PUZZLES) || describePuzzleProblem(selected.puzzle);
+
+/** Set while waiting for a bucket that had nothing ready. */
+let awaitingBoard = false;
+
+const cache = createPuzzleCache({
+  seeds: PUZZLES,
+  onReady: (size, difficulty) => {
+    updateStockHints();
+    // If the player asked for a board this bucket could not supply, put the
+    // first one that finishes straight on the screen rather than making them
+    // press the button again to collect it.
+    if (awaitingBoard && size === choice.size && difficulty === choice.difficulty) {
+      awaitingBoard = false;
+      notice = null;
+      const ready = cache.take(size, difficulty);
+      if (ready) startPuzzle(ready);
+    }
+  },
+});
+
+/**
+ * Show whether the chosen bucket has anything queued.
+ *
+ * Background generation is invisible by nature, and invisible work looks like
+ * no work — most of all for 9x9 easy and 9x9 medium, which are rare enough that
+ * the wait is real. Saying so beats looking broken.
+ */
+function updateStockHints() {
+  const ready = cache.countFor(choice.size, choice.difficulty);
+  for (const group of pickerEl.children) {
+    for (const button of group.children) {
+      const size = button.dataset.size ? Number(button.dataset.size) : choice.size;
+      const difficulty = button.dataset.difficulty ?? choice.difficulty;
+      const held = cache.countFor(size, difficulty);
+      button.dataset.stocked = held > 0 ? 'true' : 'false';
+      button.title = held
+        ? `${held} ${size}×${size} ${difficulty} board${held === 1 ? '' : 's'} ready`
+        : `still generating ${size}×${size} ${difficulty}`;
+    }
+  }
+  void ready;
+}
 
 if (problem) {
   statusEl.textContent = `Puzzle failed to load — ${problem}`;
@@ -420,6 +546,20 @@ if (problem) {
   boardEl.addEventListener('pointerup', onPointerUp);
   boardEl.addEventListener('pointercancel', onPointerCancel);
 
-  buildPicker(PUZZLES);
-  startPuzzle(selected.puzzle);
+  recallChoice();
+  buildPicker();
+  cache.select(choice.size, choice.difficulty);
+  cache.start();
+
+  // An explicit ?puzzle= wins — deep links have to keep working. Otherwise the
+  // player gets a new board of the size and difficulty they last chose, which
+  // is what makes refreshing a way to get another puzzle rather than a way to
+  // get the same one back.
+  if (selected.notice || location.search.includes('puzzle=')) {
+    startPuzzle(selected.puzzle);
+  } else {
+    loadNewPuzzle();
+  }
+
+  updateStockHints();
 }

@@ -14,8 +14,8 @@ const { suite, test, note, eq, ok } = require('./harness');
 const {
   candidates, allArrangements, isContiguous, solutionsOf, createSolutionIndex, mulberry32,
   growRegions, refine,
-} = require('../tools/generate-puzzle');
-const { countSolutions, rate, difficultyOf } = require('../tools/solver');
+} = require('../generator');
+const { countSolutions, rate, difficultyOf } = require('../solver');
 
 // Generating a 9x9 costs about two seconds even after the Phase 6.1 speedup,
 // and mutation-check.js runs this whole suite once per mutation — well over a

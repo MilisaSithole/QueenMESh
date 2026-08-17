@@ -20,7 +20,12 @@ class Element {
     this.tag = tag;
     this.children = [];
     this.parent = null;
-    this.dataset = {};
+    // A real dataset stores strings, always — `el.dataset.size = 7` reads back
+    // as '7'. Storing the raw value instead lets a test pass on a strict
+    // comparison the browser would fail, so the shim coerces the same way.
+    this.dataset = new Proxy({}, {
+      set(target, key, value) { target[key] = String(value); return true; },
+    });
     this.attrs = {};
     this.textContent = '';
     this._class = '';
@@ -95,8 +100,14 @@ class Fragment extends Element {
  * @param {object[]} [options.puzzles] substitute the whole set, for testing
  *                                    set-level problems like duplicate ids
  * @param {string} [options.search]   query string, e.g. '?puzzle=curated-9x9'
+ * @param {Map} [options.storage]     share a localStorage-backed store across
+ *   loads, for testing that a remembered choice survives a refresh
+ * @param {boolean} [options.random]  let the app pick its own opening board.
+ *   Off by default: the app now starts on a random puzzle, which is right for
+ *   players and useless for tests, so unless a test is *about* that behaviour
+ *   it gets pinned to the first board instead.
  */
-function loadApp({ puzzle, puzzles, search = '' } = {}) {
+function loadApp({ puzzle, puzzles, search = '', random = false, storage = new Map() } = {}) {
   const board = new Element('div');
   board.className = 'board';
   const status = new Element('p');
@@ -117,7 +128,28 @@ function loadApp({ puzzle, puzzles, search = '' } = {}) {
     },
   };
 
-  global.location = { search };
+  // Background generation runs on idle callbacks. Defining one that only
+  // records the work keeps the suite deterministic and fast — otherwise every
+  // loadApp() would quietly start generating puzzles on a timer.
+  const idleWork = [];
+  global.requestIdleCallback = (fn) => { idleWork.push(fn); return idleWork.length; };
+  global.cancelIdleCallback = () => {};
+
+  // No Worker in Node. The cache is built to fall back when construction
+  // throws, which is the same path a browser takes on file://, so the fallback
+  // is what the tests exercise.
+  delete global.Worker;
+
+  // A fresh store per load by default, so one test's remembered choice cannot
+  // leak into the next. Pass `storage` to share one across loads, which is how
+  // "the selection survives a refresh" is tested.
+  const stored = storage;
+  global.localStorage = {
+    getItem: (k) => (stored.has(k) ? stored.get(k) : null),
+    setItem: (k, v) => stored.set(k, String(v)),
+    removeItem: (k) => stored.delete(k),
+    clear: () => stored.clear(),
+  };
 
   const read = (file) => fs.readFileSync(path.join(ROOT, file), 'utf8');
 
@@ -137,6 +169,16 @@ function loadApp({ puzzle, puzzles, search = '' } = {}) {
   // validator that lives beside it, so tests would exercise a version of the
   // app with its validation removed — the opposite of what they are for.
   const replacement = puzzles ?? (puzzle ? [puzzle] : null);
+
+  // The app opens on a random board. Unless a test is about that, pin it to
+  // the first one — a suite whose subject changes between runs cannot assert
+  // anything about the board it is handed.
+  if (!random && !search) {
+    const list = replacement
+      ?? new Function(read('puzzles.js') + '; return PUZZLES;')();
+    if (list.length) search = `?puzzle=${list[0].id}`;
+  }
+  global.location = { search };
   const sources = scripts.flatMap((src) => {
     const source = read(src);
     if (src !== 'puzzles.js' || !replacement) return [source];
@@ -173,16 +215,44 @@ function loadApp({ puzzle, puzzles, search = '' } = {}) {
     cellAt,
     stateOf,
 
-    /** Labels shown on the picker, in order. */
-    pickerLabels: () => picker.children.map((b) => b.textContent),
-    /** Puzzle id of the button currently marked active. */
-    activePuzzleId: () => picker.children.find((b) => b.dataset.active === 'true')?.dataset.puzzleId,
-    /** Click a picker button by puzzle id, as a player would. */
-    choose(id) {
-      const button = picker.children.find((b) => b.dataset.puzzleId === id);
-      if (!button) throw new Error(`no picker button for "${id}"`);
+    /** Every picker button, flattened across the size and difficulty rows. */
+    pickerButtons: () => picker.children.flatMap((group) => group.children),
+    pickerLabels: () => picker.children.map((g) => g.children.map((b) => b.textContent)),
+
+    /** The size and difficulty currently marked active. */
+    activeSize: () =>
+      Number(
+        picker.children
+          .flatMap((g) => g.children)
+          .find((b) => b.dataset.size && b.dataset.active === 'true')?.dataset.size
+      ),
+    activeDifficulty: () =>
+      picker.children
+        .flatMap((g) => g.children)
+        .find((b) => b.dataset.difficulty && b.dataset.active === 'true')?.dataset.difficulty,
+
+    /** Click a picker button, as a player would: choose('size', 7) or choose('difficulty', 'hard'). */
+    choose(kind, value) {
+      const button = picker.children
+        .flatMap((g) => g.children)
+        .find((b) => b.dataset[kind] === String(value));
+      if (!button) throw new Error(`no picker button for ${kind}=${value}`);
       button.dispatch('click', {});
     },
+
+    /** What the app remembered about the player's choice. */
+    savedChoice: () => {
+      const raw = global.localStorage.getItem('queenmesh:choice');
+      return raw ? JSON.parse(raw) : null;
+    },
+    /** Run whatever background generation has been queued, once. */
+    runBackgroundWork() {
+      const queued = idleWork.splice(0, idleWork.length);
+      for (const fn of queued) fn();
+      return queued.length;
+    },
+    /** Which puzzle is on the board right now. */
+    currentPuzzleId: () => status.textContent.split(' ')[0],
     /** True when the cell holds a crown that is actually clashing. */
     violatingAt: (row, col) => cellAt(row, col).dataset.violation === 'cell',
     /** Clashing crowns, as sorted "row,col" keys, for stable comparison. */

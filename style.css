@@ -381,12 +381,21 @@ body {
 /* The first control outside the board, so it inherits the Phase 2 rules:
    44px minimum target, no affordance that exists only on :hover (finger touch
    has none), and no double-tap-zoom delay. */
+/* Two rows: size, then difficulty. Both are real choices, so both get their
+   own group rather than one being inferred from the other. */
 .picker {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0 0.25rem;
+}
+
+.picker-row {
   display: flex;
   flex-wrap: wrap;
   justify-content: center;
-  gap: 0.4rem;
-  padding: 0 0.25rem;
+  gap: 0.35rem;
 }
 
 .picker-option {
@@ -399,10 +408,18 @@ body {
   color: var(--text-dim);
   font: inherit;
   font-size: 0.85rem;
-  font-variant-numeric: tabular-nums;
+  text-transform: capitalize;
   cursor: pointer;
   touch-action: manipulation;
   -webkit-tap-highlight-color: transparent;
+}
+
+/* A difficulty with nothing generated yet still works — it falls back to a
+   baked-in board — but the button says so, because background generation is
+   invisible and invisible work reads as no work. 'impossible' boards take
+   longest, so this is the one that would otherwise look broken. */
+.picker-option[data-stocked="false"] {
+  opacity: 0.55;
 }
 
 /* The selected board is marked by fill and weight, not colour alone, so it

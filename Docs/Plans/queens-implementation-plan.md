@@ -318,8 +318,14 @@ The `given` option added in Phase 5.1 exists for exactly this. The remaining wor
 
 *Sub-phases (one commit each):*
 
-- **Phase 6.1 — Generator optimisation.** Make 9×9 viable. No UI change; success is measured in seconds per board.
+- **Phase 6.1 — Generator optimisation.** Make 9×9 viable. No UI change; success is measured in seconds per board. **Done: 9×9 went from >20s to 1.9s per board, 8×8 from 600ms to 70ms.** Two changes did it — region sets became bitmasks, and solutions are indexed by cell so a single-cell change re-checks ~5,300 arrangements instead of all 47,622.
 - **Phase 6.2 — Background generation, cache, fresh board per visit, difficulty picker.** The headline feature and the packaging work behind it.
+
+  **Packaging:** `solver.js` and `generator.js` moved from `tools/` to the project root as dual-mode scripts — plain globals when loaded by a `<script>` tag, CommonJS exports when required by Node. The command lines stayed in `tools/`. `rules.js` was already shaped this way; this brings the other two in line, with no build step.
+
+  **Where generation runs:** a Web Worker when one can be constructed, which is the deployed site. Browsers refuse to construct workers from `file://`, so opening `index.html` directly falls back to generating on the main thread — but only at sizes measured to finish in single-digit milliseconds (5×5 to 7×7). Handing the main thread a 1.9-second 9×9 would be exactly the freeze the whole design avoids.
+
+  A consequence worth knowing: every difficulty needs at least one *cheap* size, or that bucket can never refill without a worker and silently serves the same seed board forever. `impossible` was originally 8×8–9×9 and had this problem; 7×7 was added to it.
 - **Phase 6.3 — Hints.** Error-first, state-aware, with reasons.
 - **Phase 6.4 — Undo/redo and clear.** Retires the "re-pick the board to restart" workaround from Phase 4.3.
 - **Phase 6.5 — Timer and mistake counter.** Both are session state Phase 7 will persist, so they want the same shape.
